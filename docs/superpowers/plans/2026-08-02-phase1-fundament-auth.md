@@ -50,6 +50,7 @@ Diese gelten für **jede** Task, ohne dass sie dort wiederholt werden.
 | `src/app/manifest.ts` | PWA-Manifest |
 | `src/app/sw.ts` | Serwist Service Worker |
 | `tests/helfer/db.ts` | Lifecycle der Wegwerf-Testdatenbanken |
+| `tests/helfer/fehler.ts` | `faengtFehler()` — Umgehung eines Bun-Bugs bei `.rejects` |
 
 Bewusste Trennung: `src/lib/zugriff.ts` enthält die gesamte Zugriffsentscheidung als reine Funktionen über einem schmalen DB-Interface. `src/lib/auth.ts` verdrahtet sie nur. Dadurch ist die sicherheitskritischste Logik der App ohne laufenden Auth-Stack testbar.
 
@@ -628,7 +629,9 @@ describe("istEmailZugelassen", () => {
 describe("pruefeZugang", () => {
   it("lässt eine zugelassene Adresse passieren", async () => {
     await umgebung.db.insert(allowedEmail).values({ id: "1", email: "christopher@example.at" });
-    await expect(pruefeZugang(umgebung.db, "christopher@example.at")).resolves.toBeUndefined();
+    // Nicht .resolves: Bun 1.3.14 haengt auf Windows, wenn .resolves/.rejects
+    // nach einer bereits abgewarteten Datenbankabfrage im selben Test folgt.
+    expect(await pruefeZugang(umgebung.db, "christopher@example.at")).toBeUndefined();
   });
 
   it("wirft ZugriffVerweigert bei fremder Adresse", async () => {
@@ -724,7 +727,7 @@ export async function pruefeZugang(db: ZugriffsDb, email: string | undefined | n
 - [ ] **Step 5: Test laufen lassen und Erfolg bestätigen**
 
 Run: `bun test tests/zugriff.test.ts`
-Expected: PASS, 9 pass 0 fail
+Expected: PASS, 8 pass 0 fail
 
 - [ ] **Step 6: Commit**
 
@@ -762,6 +765,29 @@ bun add better-auth@1.6.25 @better-auth/passkey@1.6.25 @better-auth/drizzle-adap
 
 `tests/auth-gate.test.ts`:
 
+**Zuerst der Test-Helfer.** Bun 1.3.14 hängt auf Windows oder stürzt mit einem Segfault ab, wenn `expect(...).resolves` bzw. `.rejects` in einem Test verwendet wird, in dem vorher bereits eine Datenbankabfrage abgewartet wurde. In Task 4 gefunden und dort dokumentiert. Statt das Muster an mehreren Stellen unterschiedlich zu umgehen, gibt es einen benannten Helfer, den Task 5 und Task 8 gemeinsam verwenden.
+
+`tests/helfer/fehler.ts`:
+
+```ts
+/**
+ * Führt die Aktion aus und liefert den geworfenen Fehler zurück — oder
+ * `undefined`, wenn nichts geworfen wurde.
+ *
+ * Warum nicht `expect(...).rejects`: Bun 1.3.14 hängt auf Windows oder stürzt
+ * ab, wenn `.resolves`/`.rejects` nach einer bereits abgewarteten
+ * Datenbankabfrage im selben Test benutzt wird. Siehe task-4-report.md.
+ */
+export async function faengtFehler(aktion: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await aktion();
+    return undefined;
+  } catch (fehler) {
+    return fehler;
+  }
+}
+```
+
 **Warum eine Fabrik.** `@/db` bindet seine Verbindung beim ersten Import und behält sie für den gesamten Prozess. Würde `auth.ts` diese Verbindung fest verdrahten, hinge der Test davon ab, dass keine andere Testdatei `@/db` vorher angefasst hat — eine Abhängigkeit von der Dateireihenfolge, die irgendwann unbemerkt bricht. Deshalb nimmt `erzeugeAuth(datenbank)` die Datenbank als Parameter: die App reicht die echte hinein, der Test seine Wegwerf-Datenbank. Kein `process.env`-Jonglieren, kein dynamischer Import, keine Reihenfolgen-Annahme.
 
 ```ts
@@ -770,6 +796,7 @@ import { sql } from "drizzle-orm";
 import { erzeugeAuth } from "@/lib/auth";
 import { allowedEmail } from "@/db/schema/zugriff";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
+import { faengtFehler } from "./helfer/fehler";
 
 let umgebung: TestDatenbank;
 let auth: ReturnType<typeof erzeugeAuth>;
@@ -809,17 +836,19 @@ describe("Registrierungs-Gate", () => {
 
   it("weist eine nicht freigeschaltete Adresse ab", async () => {
     const gate = holeGate();
-    await expect(
+    const fehler = await faengtFehler(() =>
       gate({ email: "fremd@example.at", name: "Fremd" } as never, {} as never),
-    ).rejects.toThrow();
+    );
+    expect(fehler).toBeDefined();
   });
 
   it("lässt eine freigeschaltete Adresse durch", async () => {
     await umgebung.db.insert(allowedEmail).values({ id: "1", email: "christopher@example.at" });
     const gate = holeGate();
-    await expect(
+    const fehler = await faengtFehler(() =>
       gate({ email: "christopher@example.at", name: "Christopher" } as never, {} as never),
-    ).resolves.not.toThrow();
+    );
+    expect(fehler).toBeUndefined();
   });
 });
 
@@ -1329,6 +1358,7 @@ import { istEmailZugelassen } from "@/lib/zugriff";
 import { invite } from "@/db/schema/zugriff";
 import { eq } from "drizzle-orm";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
+import { faengtFehler } from "./helfer/fehler";
 
 let umgebung: TestDatenbank;
 
@@ -1377,9 +1407,9 @@ describe("erzeugeEinladung", () => {
 
   it("ist bei doppeltem Aufruf für dieselbe Adresse unkritisch", async () => {
     await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
-    await expect(
-      erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" }),
-    ).resolves.toBeDefined();
+    expect(
+      await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" }),
+    ).toBeDefined();
   });
 });
 
@@ -1398,11 +1428,13 @@ describe("loeseEinladungEin", () => {
       erstelltVon: "chris",
     });
     await loeseEinladungEin(umgebung.db, token);
-    await expect(loeseEinladungEin(umgebung.db, token)).rejects.toBeInstanceOf(EinladungUngueltig);
+    expect(await faengtFehler(() => loeseEinladungEin(umgebung.db, token))).toBeInstanceOf(
+      EinladungUngueltig,
+    );
   });
 
   it("weist einen unbekannten Token ab", async () => {
-    await expect(loeseEinladungEin(umgebung.db, "gibtesnicht")).rejects.toBeInstanceOf(
+    expect(await faengtFehler(() => loeseEinladungEin(umgebung.db, "gibtesnicht"))).toBeInstanceOf(
       EinladungUngueltig,
     );
   });
@@ -1417,7 +1449,9 @@ describe("loeseEinladungEin", () => {
       .set({ gueltigBis: new Date(Date.now() - 1000) })
       .where(eq(invite.token, token));
 
-    await expect(loeseEinladungEin(umgebung.db, token)).rejects.toBeInstanceOf(EinladungUngueltig);
+    expect(await faengtFehler(() => loeseEinladungEin(umgebung.db, token))).toBeInstanceOf(
+      EinladungUngueltig,
+    );
   });
 });
 
@@ -1500,7 +1534,7 @@ export async function entzieheZugang(db: ZugriffsDb, email: string): Promise<voi
 - [ ] **Step 4: Test laufen lassen und Erfolg bestätigen**
 
 Run: `bun test tests/einladung.test.ts`
-Expected: PASS, 9 pass 0 fail
+Expected: PASS, 8 pass 0 fail
 
 - [ ] **Step 5: Verwaltungsseite bauen**
 
