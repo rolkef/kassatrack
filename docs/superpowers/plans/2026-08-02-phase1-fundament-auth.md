@@ -1461,6 +1461,16 @@ git commit -m "feat: Anmeldeseite mit Passkey und Google"
 >
 > Die Verwaltungsseite ist ein Werkzeug für genau eine Person und darf dicht sein. Wichtig ist, dass sie **Folgen sichtbar macht**: „Entziehen" sperrt jemanden aus, das muss man sehen, bevor man klickt, nicht danach. Der erzeugte Einladungslink muss sich mit einem Griff kopieren lassen — er wird per Nachricht weitergeschickt, das ist der eigentliche Zweck der Seite.
 >
+> **Entziehen muss tatsächlich aussperren.** Die Allowlist wird bislang nur beim *Anlegen* eines Kontos geprüft (`databaseHooks.user.create.before`). Wer bereits ein Konto hat, kommt danach weiter herein — auch wenn ihm der Zugang entzogen wurde, denn beim nächsten Google-Login existiert der Nutzer schon und der Haken feuert nicht. Ein Knopf, der genau in dem einen Moment nichts tut, für den er gedacht ist, ist schlimmer als keiner.
+>
+> Der Weg: die Allowlist zusätzlich bei der *Sitzungserzeugung* abfragen (`databaseHooks.session.create.before`), damit jeder Anmeldeweg sie passiert, und beim Entziehen die bestehenden Sitzungen der Person löschen. Sitzungen allein zu löschen reicht nicht — die Person meldet sich einfach neu an, und da ihr Konto bereits existiert, feuert der Anlege-Haken nicht.
+>
+> Vorab geprüft: `internal-adapter.mjs` ruft `createWithHooks` auch mit dem Modell `"session"` auf, der Haken existiert in 1.6.25 also. Die genaue Signatur und den Aufbau des übergebenen Objekts trotzdem selbst nachsehen — die Annahmen über diese API waren in diesem Plan schon zweimal falsch.
+>
+> Die neue Prüfung erbt dieselben Auflagen wie die alte: Sie muss jede nicht freigeschaltete Adresse ablehnen, sie muss Datenbankfehler weiterreichen statt sie zu schlucken, und ein Fehler beim Protokollieren darf keine Ablehnung verschlucken.
+>
+> **Rollen bleiben bewusst außen vor** (Nutzerentscheidung). Jede eingeladene Person darf einladen und entziehen. Für einen Haushalt mit wenigen Personen, die einander vertrauen, ist das vertretbar; es ist als bekannte Lücke vermerkt und wird relevant, sobald jemand dazukommt, dem nicht vollständig vertraut wird.
+>
 > **Aus Task 7 mitgebracht:** Eine Abweisung wird derzeit nirgends festgehalten. Die abgewiesene Person erfährt davon, Christopher nicht. Halte abgelehnte Anmeldeversuche fest (Zeitpunkt, Adresse, Weg) und zeige sie in der Zugriffsverwaltung — das ist der Ort, an dem jemand nachsieht, warum eine eingeladene Person nicht hereinkommt. Es ist zugleich das einzige Signal, das einen Anmeldeversuch von außen überhaupt sichtbar macht.
 >
 > Die Einladungsseite dagegen sieht jemand genau einmal, oft auf dem Handy, ohne Vorwissen und ohne Kontext. Sie muss in einem Satz erklären, was KassaTrack ist und was jetzt zu tun ist.
