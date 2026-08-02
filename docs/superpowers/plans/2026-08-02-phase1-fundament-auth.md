@@ -43,7 +43,7 @@ Diese gelten für **jede** Task, ohne dass sie dort wiederholt werden.
 | `src/lib/auth.ts` | `erzeugeAuth(datenbank)` + App-Instanz, verdrahtet `zugriff.ts` als Hook |
 | `src/lib/auth-client.ts` | Better-Auth-Clientinstanz |
 | `src/lib/sitzung.ts` | `requireUser()` für Server Components |
-| `src/middleware.ts` | Sicherheits-Header + Routen-Schutz |
+| `src/proxy.ts` | Sicherheits-Header + Routen-Schutz |
 | `src/app/api/auth/[...all]/route.ts` | Better-Auth-Handler |
 | `src/app/api/health/route.ts` | Healthcheck für Coolify |
 | `src/app/anmelden/page.tsx` | Anmeldeseite (Passkey + Google) |
@@ -88,7 +88,7 @@ bun add -d @testing-library/react@16.3.2 happy-dom@20.11.1 @types/bun
 
 - [ ] **Step 3: Testrunner konfigurieren**
 
-**Wichtig:** Die DOM-Umgebung wird bewusst **nicht** global vorgeladen. `GlobalRegistrator.register()` überschreibt `Response`, `Request` und `Headers` durch happy-doms Nachbauten. Server-Tests — Route Handler, Middleware, Auth — würden dann gegen den Nachbau statt gegen Buns echte Runtime laufen und könnten grün sein, obwohl der Container etwas anderes tut. Der Vorlader setzt daher nur Umgebungsvariablen; das DOM importieren ausschließlich Komponenten-Tests.
+**Wichtig:** Die DOM-Umgebung wird bewusst **nicht** global vorgeladen. `GlobalRegistrator.register()` überschreibt `Response`, `Request` und `Headers` durch happy-doms Nachbauten. Server-Tests — Route Handler, Proxy, Auth — würden dann gegen den Nachbau statt gegen Buns echte Runtime laufen und könnten grün sein, obwohl der Container etwas anderes tut. Der Vorlader setzt daher nur Umgebungsvariablen; das DOM importieren ausschließlich Komponenten-Tests.
 
 ```bash
 bun add -d @happy-dom/global-registrator@20.11.1
@@ -840,7 +840,6 @@ export async function faengtFehler(aktion: () => Promise<unknown>): Promise<unkn
 ```ts
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { sql } from "drizzle-orm";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { APIError } from "better-auth/api";
 import { erzeugeAuth } from "@/lib/auth";
 import { allowedEmail } from "@/db/schema/zugriff";
@@ -859,12 +858,10 @@ function holeGate() {
 
 beforeAll(async () => {
   umgebung = await starteTestDatenbank();
-  // Die Better-Auth-Tabellen müssen hier ebenfalls entstehen, sonst kann der
-  // Adapter-Test seine Modelle nicht auflösen. Die erzeugte Migration auf die
-  // Wegwerf-Datenbank anwenden — dann entspricht die Testdatenbank exakt der
-  // Produktionsdatenbank, statt ein zweites handgepflegtes Schema zu führen,
-  // das auseinanderlaufen kann.
-  await migrate(umgebung.db, { migrationsFolder: "./drizzle" });
+  // Die Better-Auth-Tabellen muessen hier ebenfalls entstehen, sonst kann der
+  // Adapter-Test seine Modelle nicht aufloesen. Lege mindestens die Tabelle
+  // "user" an; alternativ die erzeugte Migration anwenden.
+  await erzeugeAuthTabellen(umgebung.db);
   auth = erzeugeAuth(umgebung.db);
 }, 120_000);
 
@@ -1078,26 +1075,28 @@ git commit -m "feat: Better Auth mit Passkey, Google und Allowlist-Gate im Daten
 
 ## Task 6: Sitzungshilfe und Routen-Schutz
 
+> **Achtung, Next-16-Änderung.** `middleware.ts` heißt seit Next 16 `proxy.ts`, und die exportierte Funktion heißt `proxy` statt `middleware`. Beide Namen werden noch erkannt, aber Next warnt bei der alten Variante und verweist auf `nextjs.org/docs/messages/middleware-to-proxy`. Liegen beide Dateien vor, bricht der Build ab. Verwende ausschließlich `src/proxy.ts` mit `export function proxy(...)`. Der `config.matcher`-Export bleibt unverändert.
+
 **Files:**
-- Create: `src/lib/sitzung.ts`, `src/middleware.ts`
+- Create: `src/lib/sitzung.ts`, `src/proxy.ts`
 - Modify: `src/app/page.tsx`
-- Test: `tests/middleware.test.ts`
+- Test: `tests/proxy.test.ts`
 
 **Interfaces:**
 - Consumes: `auth` aus `@/lib/auth` (Task 5)
 - Produces:
   - `requireUser(): Promise<Benutzer>` aus `@/lib/sitzung` — leitet auf `/anmelden` um, wenn keine Sitzung besteht. `Benutzer = { id: string; email: string; name: string; image?: string | null }`
   - `holeSitzung(): Promise<Sitzung | null>` — ohne Umleitung
-  - `middleware(request: NextRequest): NextResponse` — setzt Sicherheits-Header auf allen Antworten
+  - `proxy(request: NextRequest): NextResponse` — setzt Sicherheits-Header auf allen Antworten
 
 - [ ] **Step 1: Den fehlschlagenden Test schreiben**
 
-`tests/middleware.test.ts`:
+`tests/proxy.test.ts`:
 
 ```ts
 import { describe, expect, it } from "bun:test";
 import { NextRequest } from "next/server";
-import { middleware } from "@/middleware";
+import { proxy } from "@/proxy";
 
 function anfrage(pfad: string): NextRequest {
   return new NextRequest(new URL(pfad, "https://kassatrack.example.at"));
@@ -1105,40 +1104,40 @@ function anfrage(pfad: string): NextRequest {
 
 describe("Sicherheits-Header", () => {
   it("setzt eine Content-Security-Policy", () => {
-    const kopf = middleware(anfrage("/")).headers.get("content-security-policy");
+    const kopf = proxy(anfrage("/")).headers.get("content-security-policy");
     expect(kopf).toContain("default-src 'self'");
     expect(kopf).toContain("frame-ancestors 'none'");
   });
 
   it("setzt HSTS", () => {
-    const kopf = middleware(anfrage("/")).headers.get("strict-transport-security");
+    const kopf = proxy(anfrage("/")).headers.get("strict-transport-security");
     expect(kopf).toContain("max-age=");
   });
 
   it("verbietet das Einbetten in Frames", () => {
-    expect(middleware(anfrage("/")).headers.get("x-frame-options")).toBe("DENY");
+    expect(proxy(anfrage("/")).headers.get("x-frame-options")).toBe("DENY");
   });
 
   it("unterdrückt Referrer an fremde Ziele", () => {
-    expect(middleware(anfrage("/")).headers.get("referrer-policy")).toBe(
+    expect(proxy(anfrage("/")).headers.get("referrer-policy")).toBe(
       "strict-origin-when-cross-origin",
     );
   });
 
   it("setzt die Header auch auf der Anmeldeseite", () => {
-    expect(middleware(anfrage("/anmelden")).headers.get("x-frame-options")).toBe("DENY");
+    expect(proxy(anfrage("/anmelden")).headers.get("x-frame-options")).toBe("DENY");
   });
 });
 ```
 
 - [ ] **Step 2: Test laufen lassen und Fehlschlag bestätigen**
 
-Run: `bun test tests/middleware.test.ts`
-Expected: FAIL — `Cannot find module '@/middleware'`
+Run: `bun test tests/proxy.test.ts`
+Expected: FAIL — `Cannot find module '@/proxy'`
 
 - [ ] **Step 3: Implementierung**
 
-`src/middleware.ts`:
+`src/proxy.ts`:
 
 ```ts
 import { NextResponse, type NextRequest } from "next/server";
@@ -1155,7 +1154,7 @@ const CSP = [
   "form-action 'self'",
 ].join("; ");
 
-export function middleware(_request: NextRequest): NextResponse {
+export function proxy(_request: NextRequest): NextResponse {
   const antwort = NextResponse.next();
 
   antwort.headers.set("content-security-policy", CSP);
@@ -1225,13 +1224,13 @@ export default async function StartSeite() {
 
 - [ ] **Step 4: Test laufen lassen und Erfolg bestätigen**
 
-Run: `bun test tests/middleware.test.ts`
+Run: `bun test tests/proxy.test.ts`
 Expected: PASS, 5 pass 0 fail
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/middleware.ts src/lib/sitzung.ts src/app/page.tsx tests/middleware.test.ts
+git add src/proxy.ts src/lib/sitzung.ts src/app/page.tsx tests/proxy.test.ts
 git commit -m "feat: Routen-Schutz und Sicherheits-Header"
 ```
 
