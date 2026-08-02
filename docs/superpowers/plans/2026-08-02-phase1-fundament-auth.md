@@ -775,8 +775,12 @@ bun add better-auth@1.6.25 @better-auth/passkey@1.6.25 @better-auth/drizzle-adap
  * `undefined`, wenn nichts geworfen wurde.
  *
  * Warum nicht `expect(...).rejects`: Bun 1.3.14 hängt auf Windows oder stürzt
- * ab, wenn `.resolves`/`.rejects` nach einer bereits abgewarteten
- * Datenbankabfrage im selben Test benutzt wird. Siehe task-4-report.md.
+ * mit einem Segfault ab, wenn `.resolves`/`.rejects` auf ein Versprechen
+ * angewendet wird, das selbst eine Datenbankabfrage ausführt, und im selben
+ * Test bereits eine Abfrage abgewartet wurde. Die Abfrage wird serverseitig
+ * fertig, das Versprechen bleibt offen. Nachgemessen: dieselbe Konstruktion
+ * mit einem Versprechen ohne Datenbankzugriff läuft durch. Siehe
+ * task-4-report.md.
  */
 export async function faengtFehler(aktion: () => Promise<unknown>): Promise<unknown> {
   try {
