@@ -1892,7 +1892,21 @@ Expected: keine Datei gefunden
 Run: `git grep -nE "(GOCSPX-|sk-[A-Za-z0-9]{20,})" -- . ':!docs' || echo "sauber"`
 Expected: `sauber`
 
-- [ ] **Step 6: Pull Request eröffnen**
+- [ ] **Step 6: Basis-Branch auf dem Remote herstellen**
+
+Das Repository `https://github.com/rolkef/kassatrack.git` ist angelegt, aber **leer** — es hat noch keine einzige Ref. Ohne `main` auf dem Remote gibt es kein Ziel für den Pull Request.
+
+```bash
+git ls-remote --heads origin
+```
+
+Wenn die Ausgabe leer ist oder kein `refs/heads/main` enthält, den lokalen `main` einmalig hochschieben. `main` enthält nur den Initial Commit, es geht dabei nichts verloren:
+
+```bash
+git push -u origin main
+```
+
+- [ ] **Step 7: Pull Request eröffnen**
 
 ```bash
 git push -u origin design/kassatrack-foundation
