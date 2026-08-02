@@ -696,14 +696,29 @@ bun add better-auth@1.6.25 @better-auth/passkey@1.6.25 @better-auth/drizzle-adap
 
 `tests/auth-gate.test.ts`:
 
-```ts
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { sql } from "drizzle-orm";
-import { auth } from "@/lib/auth";
-import { allowedEmail } from "@/db/schema/zugriff";
-import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
+**Reihenfolge ist hier entscheidend.** `src/lib/auth.ts` importiert `db` aus `@/db`, und `@/db` liest `env.DATABASE_URL` beim Modul-Import — also einmalig und unveränderlich. Ein `beforeAll` läuft zu spät. Deshalb wird der Container per Top-Level-`await` gestartet, `process.env.DATABASE_URL` gesetzt, und `auth` erst **danach** dynamisch importiert. Bun unterstützt Top-Level-`await` in Testdateien.
 
-let umgebung: TestDatenbank;
+```ts
+import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { sql } from "drizzle-orm";
+import { starteTestDatenbank } from "./helfer/db";
+
+// Top-Level: läuft VOR jedem dynamischen Import weiter unten.
+const umgebung = await starteTestDatenbank();
+process.env.DATABASE_URL = umgebung.url;
+
+await umgebung.db.execute(sql`
+  create table allowed_email (
+    id text primary key,
+    email text not null unique,
+    hinzugefuegt_von text,
+    erstellt_am timestamptz not null default now()
+  )
+`);
+
+// Erst jetzt importieren — @/db liest DATABASE_URL beim Import.
+const { auth } = await import("@/lib/auth");
+const { allowedEmail } = await import("@/db/schema/zugriff");
 
 /** Greift genau den Hook ab, den Better Auth vor jedem Nutzer-Insert ausführt. */
 function holeGate() {
@@ -711,18 +726,6 @@ function holeGate() {
   if (!hook) throw new Error("databaseHooks.user.create.before ist nicht verdrahtet");
   return hook;
 }
-
-beforeAll(async () => {
-  umgebung = await starteTestDatenbank();
-  await umgebung.db.execute(sql`
-    create table allowed_email (
-      id text primary key,
-      email text not null unique,
-      hinzugefuegt_von text,
-      erstellt_am timestamptz not null default now()
-    )
-  `);
-}, 120_000);
 
 afterAll(async () => {
   await umgebung.stop();
@@ -764,24 +767,9 @@ describe("Auth-Konfiguration", () => {
 });
 ```
 
-Damit die Tests gegen die Testcontainer-Datenbank laufen, muss `tests/setup.ts` deren URL kennen. Ergänze in `tests/setup.ts` **vor** allem anderen nichts weiter — `src/db/index.ts` liest `env.DATABASE_URL`, und der Hook in `src/lib/auth.ts` bekommt seine DB per Parameter injiziert. Siehe Step 4: `pruefeZugang` wird mit `db` aus `@/db` aufgerufen, deshalb muss `process.env.DATABASE_URL` in `tests/setup.ts` auf die Testcontainer-Instanz zeigen. Da der Container erst zur Laufzeit startet, wird `src/db/index.ts` im Test über den `beforeAll`-Hook umgangen: der Test importiert `auth` erst nach dem Containerstart nicht — stattdessen wird die Modul-DB durch das Setzen von `process.env.DATABASE_URL` **vor** dem Import bestimmt. Praktische Lösung: in `tests/setup.ts` einen dauerhaften Test-Container über `compose.yaml` auf Port 5433 verwenden. Lege dazu in `compose.yaml` einen zweiten Service an:
-
-```yaml
-  postgres-test:
-    image: postgres:18-alpine
-    environment:
-      POSTGRES_USER: kassatrack
-      POSTGRES_PASSWORD: kassatrack
-      POSTGRES_DB: kassatrack_test
-    ports:
-      - "5433:5432"
-```
-
-und starte ihn vor den Tests mit `docker compose up -d postgres-test`. `tests/setup.ts` zeigt bereits auf `localhost:5433` (Task 2, Step 4). Für `tests/zugriff.test.ts` und `tests/db.test.ts` bleibt der Testcontainer-Weg, weil dort keine Modul-Singletons im Spiel sind.
-
 - [ ] **Step 3: Test laufen lassen und Fehlschlag bestätigen**
 
-Run: `docker compose up -d postgres-test && bun test tests/auth-gate.test.ts`
+Run: `bun test tests/auth-gate.test.ts`
 Expected: FAIL — `Cannot find module '@/lib/auth'`
 
 - [ ] **Step 4: Auth-Server implementieren**
@@ -1943,4 +1931,4 @@ ENDE
 
 **Offene Abhängigkeit.** Die exakte Signatur von `databaseHooks.user.create.before` in Better Auth 1.6.25 ist aus der Dokumentation als `(user, ctx) => Promise<void>` belegt. Der Test in Task 5 ruft den Hook direkt auf und würde bei einer abweichenden Signatur sofort fehlschlagen — das ist gewollt und die Absicherung gegen eine falsche Annahme.
 
-**Bekannte Reibungsstelle.** Task 5, Step 2 beschreibt, warum `tests/auth-gate.test.ts` einen dauerhaften Test-Postgres auf Port 5433 statt eines Testcontainers braucht: `src/lib/auth.ts` importiert `db` als Modul-Singleton, das beim Import feststeht. Wer das eleganter lösen will, kann `auth.ts` zu einer Factory `erzeugeAuth(db)` umbauen — für Phase 1 ist der Port-5433-Weg der geringere Aufwand.
+**Bekannte Reibungsstelle.** `src/lib/auth.ts` importiert `db` als Modul-Singleton, dessen Verbindung beim Import feststeht. `tests/auth-gate.test.ts` löst das über Top-Level-`await` plus dynamischen Import (Task 5, Step 2) — korrekt, aber subtil. Sollte sich das im weiteren Verlauf als sperrig erweisen, ist der saubere Umbau eine Factory `erzeugeAuth(db)`; für Phase 1 wäre das vorgezogener Aufwand ohne aktuellen Nutzen.
