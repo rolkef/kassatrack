@@ -1,10 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { sql } from "drizzle-orm";
 import {
   AUFBEWAHRUNG_TAGE,
   benenneWeg,
   haltAbweisungFest,
   holeAbweisungen,
+  raeumeAbweisungenAuf,
 } from "@/lib/abweisung";
 import { abweisung } from "@/db/schema/zugriff";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
@@ -74,13 +75,22 @@ describe("haltAbweisungFest", () => {
   // Der wichtigste Test dieser Datei. Das Mitschreiben sitzt im Registrierungs-
   // Gate; könnte es werfen, würde ein kaputtes Protokoll die Abweisung selbst
   // zum Absturz bringen — und im schlimmsten Fall zu einem anderen Verhalten.
-  it("wirft niemals, auch wenn die Tabelle fehlt", async () => {
+  it("wirft niemals, auch wenn die Tabelle fehlt — meldet den Ausfall aber", async () => {
     await umgebung.db.execute(sql`drop table abweisung`);
     try {
-      const fehler = await faengtFehler(() =>
-        haltAbweisungFest(umgebung.db, { email: "fremd@example.at", weg: null }),
-      );
-      expect(fehler).toBeUndefined();
+      // Abgefangen statt durchgelassen: Das hielte sonst die Testausgabe
+      // schmutzig. Zugleich wird damit geprüft, dass der Ausfall überhaupt
+      // gemeldet wird — still verschluckt wäre er im Betrieb unauffindbar.
+      const stille = spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const fehler = await faengtFehler(() =>
+          haltAbweisungFest(umgebung.db, { email: "fremd@example.at", weg: null }),
+        );
+        expect(fehler).toBeUndefined();
+        expect(stille).toHaveBeenCalled();
+      } finally {
+        stille.mockRestore();
+      }
     } finally {
       await erzeugeAbweisungsTabelle(umgebung.db);
     }
@@ -135,6 +145,69 @@ describe("Aufbewahrung", () => {
 
     const rest = await umgebung.db.select().from(abweisung);
     expect(rest).toEqual([]);
+  });
+
+  // Auch der Schreibweg räumt auf — das ist der Pfad, über den die Tabelle
+  // überhaupt wächst, und er ist ohne Anmeldung erreichbar.
+  it("räumt auch beim Mitschreiben auf", async () => {
+    await umgebung.db
+      .insert(abweisung)
+      .values({ id: "uralt", email: "uralt@example.at", weg: null, zeitpunkt: zuAlt() });
+
+    await haltAbweisungFest(umgebung.db, { email: "neu@example.at", weg: null });
+
+    const rest = await umgebung.db.select().from(abweisung);
+    expect(rest.map((e) => e.email)).toEqual(["neu@example.at"]);
+  });
+
+  it("räumt auf, ohne dass jemand die Liste liest", async () => {
+    await umgebung.db
+      .insert(abweisung)
+      .values({ id: "uralt", email: "uralt@example.at", weg: null, zeitpunkt: zuAlt() });
+
+    await raeumeAbweisungenAuf(umgebung.db);
+
+    expect(await umgebung.db.select().from(abweisung)).toEqual([]);
+  });
+
+  /*
+   * Der Filter beim Lesen ist keine Zierde, sondern trägt für sich.
+   *
+   * Nachgewiesen mit einer Postgres-Regel, die DELETE zu einem Nichts macht:
+   * Das Aufräumen läuft durch und bewirkt nichts — genau der Zustand, den
+   * `raeumeAbweisungenAuf` mit seinem verschluckten Fehler erzeugen kann. Der
+   * abgelaufene Eintrag darf trotzdem niemandem angezeigt werden.
+   */
+  it("zeigt abgelaufene Einträge auch dann nicht, wenn das Löschen wirkungslos bleibt", async () => {
+    await umgebung.db
+      .insert(abweisung)
+      .values({ id: "uralt", email: "uralt@example.at", weg: null, zeitpunkt: zuAlt() });
+    await umgebung.db.execute(
+      sql`create rule abweisung_kein_loeschen as on delete to abweisung do instead nothing`,
+    );
+
+    try {
+      expect(await holeAbweisungen(umgebung.db)).toEqual([]);
+      // Beweis, dass die Regel wirklich griff — sonst prüfte der Test nichts.
+      expect((await umgebung.db.select().from(abweisung)).length).toBe(1);
+    } finally {
+      await umgebung.db.execute(sql`drop rule abweisung_kein_loeschen on abweisung`);
+    }
+  });
+
+  it("wirft beim Aufräumen nie, auch wenn die Tabelle fehlt", async () => {
+    await umgebung.db.execute(sql`drop table abweisung`);
+    try {
+      const stille = spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        expect(await faengtFehler(() => raeumeAbweisungenAuf(umgebung.db))).toBeUndefined();
+        expect(stille).toHaveBeenCalled();
+      } finally {
+        stille.mockRestore();
+      }
+    } finally {
+      await erzeugeAbweisungsTabelle(umgebung.db);
+    }
   });
 
   it("lässt Einträge innerhalb der Frist unangetastet", async () => {

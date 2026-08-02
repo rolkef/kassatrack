@@ -63,30 +63,78 @@ describe("ZugangsZeile", () => {
   /*
    * Der Kern dieses Bildschirms. Ohne diesen Test könnte ein Umbau den Satz
    * entfernen und „Entziehen" zu einem Klick ohne Ankündigung machen.
+   *
+   * Die Zusage ist für beide Fälle dieselbe, weil die Wirkung dieselbe ist:
+   * `entzieheZugang` streicht die Freischaltung und beendet die Sitzungen, und
+   * das Sitzungs-Gate prüft die Liste bei jeder Anmeldung. Dass das auch
+   * wirklich so ist, hält „Entzug sperrt wirklich aus" in
+   * `tests/auth-gate.test.ts` fest — fällt das Gate weg, schlägt dort etwas
+   * fehl, und dieser Satz hier wäre wieder eine Lüge.
    */
-  it("sagt vor dem Entziehen, was das Entziehen bewirkt", async () => {
-    zeichne({ hatKonto: false });
+  it.each([
+    ["ohne Konto", false],
+    ["mit Konto", true],
+  ])("kündigt die Aussperrung an (%s)", async (_name, hatKonto) => {
+    zeichne({ hatKonto: hatKonto as boolean });
     await userEvent.click(screen.getByRole("button", { name: /Zugang entziehen für/i }));
 
     await waitFor(() => {
-      expect(document.body.textContent).toContain("nicht mehr herein");
+      expect(document.body.textContent).toContain("nicht mehr anmelden");
     });
   });
 
-  /*
-   * Die Allowlist wird nur beim Anlegen eines Kontos geprüft. Wer schon ein
-   * Konto hat, kommt danach ohne erneute Prüfung herein — „kann sich nicht
-   * mehr anmelden" wäre für diesen Fall schlicht gelogen.
-   */
-  it("verspricht bei einem bestehenden Konto keine Aussperrung", async () => {
+  // Kein Relativieren mehr: Die frühere Einschränkung („das bestehende Konto
+  // kann sich weiterhin anmelden") gilt nicht mehr und darf nicht zurückkommen.
+  it("schränkt die Zusage bei einem bestehenden Konto nicht ein", async () => {
     zeichne({ hatKonto: true });
     await userEvent.click(screen.getByRole("button", { name: /Zugang entziehen für/i }));
 
     await waitFor(() => {
       const text = document.body.textContent ?? "";
-      expect(text).toContain("das bestehende Konto bleibt bestehen");
-      expect(text).not.toContain("nicht mehr herein");
+      expect(text).toContain("nicht mehr anmelden");
+      expect(text).not.toContain("weiterhin anmelden");
+      // Was zusätzlich passiert, darf dabeistehen — es nimmt die Zusage nicht
+      // zurück, sondern ergänzt sie.
+      expect(text).toContain("laufende Anmeldung wird sofort beendet");
     });
+  });
+
+  /*
+   * Ohne Fokusführung ist der Bildschirm für Tastatur und Screenreader kaputt:
+   * Der Auslöser wird beim Aufklappen ausgehängt, der Fokus fällt auf
+   * `document.body`, und der Folgensatz wird nie vorgelesen — `aria-describedby`
+   * zählt erst, wenn der Fokus die Schaltfläche erreicht.
+   */
+  it("setzt den Fokus auf die Bestätigung, wenn die Rückfrage aufgeht", async () => {
+    zeichne();
+    await userEvent.click(screen.getByRole("button", { name: /Zugang entziehen für/i }));
+
+    const bestaetigen = await screen.findByRole("button", { name: /Ja, Zugang entziehen/i });
+    await waitFor(() => expect(document.activeElement).toBe(bestaetigen));
+  });
+
+  it("gibt den Fokus an den Auslöser zurück, wenn abgebrochen wird", async () => {
+    zeichne();
+    await userEvent.click(screen.getByRole("button", { name: /Zugang entziehen für/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /^Behalten$/i }));
+
+    await waitFor(() => {
+      const ausloeser = screen.getByRole("button", { name: /Zugang entziehen für/i });
+      expect(document.activeElement).toBe(ausloeser);
+    });
+  });
+
+  it("bricht mit Escape ab", async () => {
+    zeichne();
+    await userEvent.click(screen.getByRole("button", { name: /Zugang entziehen für/i }));
+    await screen.findByRole("button", { name: /Ja, Zugang entziehen/i });
+
+    await userEvent.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /Ja, Zugang entziehen/i })).toBeNull();
+    });
+    expect(entziehe).not.toHaveBeenCalled();
   });
 
   it("verbindet die Bestätigung mit dem Folgensatz, damit Hilfstechnik ihn mitliest", async () => {
@@ -96,7 +144,7 @@ describe("ZugangsZeile", () => {
     const bestaetigen = await screen.findByRole("button", { name: /Ja, Zugang entziehen/i });
     const beschreibung = bestaetigen.getAttribute("aria-describedby");
     expect(beschreibung).toBeTruthy();
-    expect(document.getElementById(beschreibung!)?.textContent).toContain("Entziehen");
+    expect(document.getElementById(beschreibung!)?.textContent).toContain("nicht mehr anmelden");
   });
 
   it("führt das Entziehen erst nach der Bestätigung aus", async () => {

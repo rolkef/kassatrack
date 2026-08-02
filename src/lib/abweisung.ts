@@ -62,25 +62,56 @@ export async function haltAbweisungFest(
     // Sichtbar für den Betrieb, folgenlos für die Anmeldung.
     console.warn("Abgewiesener Anmeldeversuch konnte nicht mitgeschrieben werden:", fehler);
   }
+
+  // Wer schreibt, räumt auch auf. Dieser Weg ist von außen und ohne Anmeldung
+  // erreichbar — genau der Pfad, über den die Tabelle wachsen kann. Dass er
+  // zugleich aufräumt, hält sie auch dann in der Frist, wenn die
+  // Verwaltungsseite monatelang niemand öffnet.
+  await raeumeAbweisungenAuf(db);
+}
+
+/**
+ * Löscht alles, was älter als die Frist ist — und wirft dabei **nie**.
+ *
+ * Der Fang liegt wie bei `haltAbweisungFest` in der Funktion selbst, damit kein
+ * Aufrufer ihn vergessen kann. Das ist hier nicht nur Vorsicht: Ohne ihn
+ * scheiterte die ganze Verwaltungsseite an einem misslungenen Aufräumen, und
+ * der Filter beim Lesen, der die Frist absichern soll, käme nie zum Zug.
+ *
+ * Gerufen wird sie an drei Stellen, damit die Zusage auf dem Bildschirm
+ * („Einträge werden nach 30 Tagen gelöscht") auch stimmt, wenn niemand
+ * hinsieht:
+ *
+ * - beim Start des Servers und danach täglich (`src/instrumentation.ts`),
+ * - bei jedem Lesen der Verwaltungsseite (`holeAbweisungen`),
+ * - bei jedem Schreiben (`haltAbweisungFest`).
+ *
+ * Damit gibt es keinen Betriebszustand mehr, in dem Adressen Dritter monatelang
+ * liegen bleiben, ohne dass jemand die Seite öffnet.
+ */
+export async function raeumeAbweisungenAuf(db: ZugriffsDb): Promise<void> {
+  try {
+    await db.delete(abweisung).where(lt(abweisung.zeitpunkt, fristBeginn()));
+  } catch (fehler) {
+    console.warn("Abgelaufene Abweisungen konnten nicht gelöscht werden:", fehler);
+  }
 }
 
 /**
  * Liefert die jüngsten Abweisungen und räumt dabei die abgelaufenen weg.
  *
- * Das Löschen hängt am Lesen, weil es in dieser Phase noch keinen Zeitplaner
- * gibt. Damit die Frist trotzdem verlässlich gilt, wird zusätzlich beim Lesen
- * gefiltert: Selbst wenn das Löschen einmal scheitert, bekommt niemand einen
- * Eintrag zu sehen, der älter als die Frist ist.
+ * Zusätzlich zum Löschen wird beim Lesen **gefiltert**. Das ist echte
+ * Absicherung und keine Zierde: `raeumeAbweisungenAuf` schluckt seine Fehler,
+ * ein Aufräumen kann also unbemerkt ausfallen — und selbst dann bekommt niemand
+ * einen Eintrag zu sehen, der älter als die Frist ist.
  */
 export async function holeAbweisungen(db: ZugriffsDb, grenze = 50): Promise<Abweisung[]> {
-  const grenzzeit = fristBeginn();
-
-  await db.delete(abweisung).where(lt(abweisung.zeitpunkt, grenzzeit));
+  await raeumeAbweisungenAuf(db);
 
   return db
     .select()
     .from(abweisung)
-    .where(gte(abweisung.zeitpunkt, grenzzeit))
+    .where(gte(abweisung.zeitpunkt, fristBeginn()))
     .orderBy(desc(abweisung.zeitpunkt))
     .limit(grenze);
 }

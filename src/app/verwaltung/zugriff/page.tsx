@@ -110,9 +110,15 @@ export default async function ZugriffSeite() {
           </ul>
         )}
 
+        {/*
+          Die Zusage deckt sich mit der Mechanik: Gelöscht wird beim Start des
+          Servers, danach täglich, bei jedem Aufruf dieser Seite und bei jedem
+          neuen Eintrag (siehe `raeumeAbweisungenAuf`). Es gibt keinen
+          Betriebszustand, in dem hier etwas Älteres liegen bleibt.
+        */}
         <p className="text-xs leading-relaxed text-gedaempft">
           Hier stehen E-Mail-Adressen von Personen, die keine Nutzer sind. Einträge werden nach{" "}
-          {AUFBEWAHRUNG_TAGE} Tagen gelöscht.
+          {AUFBEWAHRUNG_TAGE} Tagen automatisch gelöscht.
         </p>
       </Abschnitt>
     </main>

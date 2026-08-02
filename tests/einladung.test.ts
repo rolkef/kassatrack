@@ -7,7 +7,7 @@ import {
   holeZugaenge,
   loeseEinladungEin,
 } from "@/lib/einladung";
-import { user } from "@/db/schema/auth";
+import { session, user } from "@/db/schema/auth";
 import { istEmailZugelassen } from "@/lib/zugriff";
 import { invite } from "@/db/schema/zugriff";
 import { eq } from "drizzle-orm";
@@ -45,6 +45,16 @@ beforeAll(async () => {
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
     );
+    create table session (
+      id text primary key,
+      expires_at timestamptz not null,
+      token text not null unique,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      ip_address text,
+      user_agent text,
+      user_id text not null references "user"(id) on delete cascade
+    );
   `);
 }, 120_000);
 
@@ -53,7 +63,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await umgebung.db.execute(sql`truncate table allowed_email, invite, "user"`);
+  await umgebung.db.execute(sql`truncate table allowed_email, invite`);
+  await umgebung.db.execute(sql`truncate table "user" cascade`);
 });
 
 describe("erzeugeEinladung", () => {
@@ -127,11 +138,9 @@ describe("entzieheZugang", () => {
     expect(await istEmailZugelassen(umgebung.db, "neu@example.at")).toBe(false);
   });
 
-  // Diese Zeile hält die Aussage der Oberfläche ehrlich. Die Allowlist wird nur
-  // beim Anlegen eines Kontos geprüft — ein bestehendes Konto überlebt das
-  // Entziehen. Würde jemand das später ändern, muss auch der Satz auf der
-  // Verwaltungsseite geändert werden, und dieser Test fällt ihm auf.
-  it("lässt ein bereits angelegtes Konto bestehen", async () => {
+  // Ausgesperrt, nicht gelöscht: Das Konto bleibt bestehen (an ihm hängen
+  // später Belege und Preiseinträge), nur hereinkommen kann es nicht mehr.
+  it("lässt das Konto selbst bestehen", async () => {
     await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
     await umgebung.db
       .insert(user)
@@ -140,6 +149,78 @@ describe("entzieheZugang", () => {
     await entzieheZugang(umgebung.db, "neu@example.at");
 
     expect((await umgebung.db.select().from(user)).length).toBe(1);
+  });
+
+  /*
+   * Die Freischaltung zu streichen sperrt erst beim **nächsten** Anmelden aus.
+   * Ohne diesen Schritt bliebe die Person bis zum Ablauf ihrer Sitzung
+   * angemeldet — bei sieben Tagen Sitzungsdauer eine Woche lang.
+   */
+  it("beendet die laufenden Sitzungen der Person", async () => {
+    await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
+    await umgebung.db
+      .insert(user)
+      .values({ id: "u1", name: "Neu", email: "neu@example.at", updatedAt: new Date() });
+    await umgebung.db.insert(session).values({
+      id: "s1",
+      token: "t1",
+      userId: "u1",
+      expiresAt: new Date(Date.now() + 86_400_000),
+      updatedAt: new Date(),
+    });
+
+    await entzieheZugang(umgebung.db, "neu@example.at");
+
+    expect(await umgebung.db.select().from(session)).toEqual([]);
+  });
+
+  // `user.email` trägt die Schreibweise des Anbieters. Ohne `lower()` bliebe
+  // diese Sitzung stehen und die Person wäre weiter angemeldet.
+  it("beendet Sitzungen auch bei abweichender Schreibweise im Konto", async () => {
+    await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
+    await umgebung.db
+      .insert(user)
+      .values({ id: "u1", name: "Neu", email: "Neu@Example.AT", updatedAt: new Date() });
+    await umgebung.db.insert(session).values({
+      id: "s1",
+      token: "t1",
+      userId: "u1",
+      expiresAt: new Date(Date.now() + 86_400_000),
+      updatedAt: new Date(),
+    });
+
+    await entzieheZugang(umgebung.db, "neu@example.at");
+
+    expect(await umgebung.db.select().from(session)).toEqual([]);
+  });
+
+  it("lässt die Sitzungen anderer Personen unangetastet", async () => {
+    await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
+    await umgebung.db.insert(user).values([
+      { id: "u1", name: "Neu", email: "neu@example.at", updatedAt: new Date() },
+      { id: "u2", name: "Andere", email: "andere@example.at", updatedAt: new Date() },
+    ]);
+    await umgebung.db.insert(session).values([
+      {
+        id: "s1",
+        token: "t1",
+        userId: "u1",
+        expiresAt: new Date(Date.now() + 86_400_000),
+        updatedAt: new Date(),
+      },
+      {
+        id: "s2",
+        token: "t2",
+        userId: "u2",
+        expiresAt: new Date(Date.now() + 86_400_000),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    await entzieheZugang(umgebung.db, "neu@example.at");
+
+    const rest = await umgebung.db.select().from(session);
+    expect(rest.map((s) => s.userId)).toEqual(["u2"]);
   });
 });
 
@@ -164,6 +245,21 @@ describe("holeZugaenge", () => {
     await umgebung.db
       .insert(user)
       .values({ id: "u1", name: "Neu", email: "neu@example.at", updatedAt: new Date() });
+
+    expect((await holeZugaenge(umgebung.db))[0]?.hatKonto).toBe(true);
+  });
+
+  /*
+   * `allowed_email.email` ist per Constraint kleingeschrieben, `user.email`
+   * trägt die Schreibweise des Anbieters. Ein Vergleich ohne `lower()` fand
+   * dieses Konto nicht und meldete „Noch nicht angemeldet" für jemanden, der
+   * längst ein Konto hat.
+   */
+  it("erkennt ein Konto auch bei abweichender Schreibweise", async () => {
+    await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
+    await umgebung.db
+      .insert(user)
+      .values({ id: "u1", name: "Neu", email: "Neu@Example.AT", updatedAt: new Date() });
 
     expect((await holeZugaenge(umgebung.db))[0]?.hatKonto).toBe(true);
   });

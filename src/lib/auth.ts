@@ -8,9 +8,48 @@ import * as authSchema from "@/db/schema/auth";
 import { env } from "@/lib/env";
 import { ZUGANG_NICHT_FREIGESCHALTET } from "@/lib/anmeldung";
 import { haltAbweisungFest } from "@/lib/abweisung";
-import { pruefeZugang, ZugriffVerweigert, type ZugriffsDb } from "@/lib/zugriff";
+import {
+  pruefeZugang,
+  pruefeZugangFuerNutzer,
+  ZugriffVerweigert,
+  type ZugriffsDb,
+} from "@/lib/zugriff";
 
 const rpID = new URL(env.BETTER_AUTH_URL).hostname;
+
+/**
+ * Schreibt die Abweisung mit und liefert den Fehler, der nach außen geht.
+ *
+ * Geteilt von beiden Gates, damit die Zusagen nur an einer Stelle stehen und
+ * nicht auseinanderlaufen können. Die Funktion **wirft nicht selbst** — sie
+ * gibt den Fehler zurück, und das `throw` bleibt an der Aufrufstelle sichtbar.
+ * Bei einer Sicherheitsgrenze soll man den Abbruch dort lesen können, wo er
+ * passiert.
+ *
+ * `haltAbweisungFest` wirft konstruktionsbedingt nie (der Fang liegt in der
+ * Funktion selbst). Ein kaputtes Protokoll kann die Abweisung darunter also
+ * nicht ersetzen — ein fehlendes Protokoll darf niemals eine offene Anmeldung
+ * ergeben.
+ */
+async function haltFestUndBaueAbweisung(
+  datenbank: ZugriffsDb,
+  fehler: ZugriffVerweigert,
+  kontext: { path?: unknown } | null,
+): Promise<APIError> {
+  await haltAbweisungFest(datenbank, {
+    // Aus dem Fehler, nicht aus einem zweiten Nachschlagen: Die Adresse steht
+    // dort bereits kleingeschrieben bereit.
+    email: fehler.email,
+    // Endpunktpfad von Better Auth (`/callback/google`, `/passkey/…`) — sagt,
+    // auf welchem Weg jemand angeklopft hat. Der Kontext kann `null` sein.
+    weg: typeof kontext?.path === "string" ? kontext.path : null,
+  });
+
+  return new APIError("FORBIDDEN", {
+    code: ZUGANG_NICHT_FREIGESCHALTET,
+    message: ZUGANG_NICHT_FREIGESCHALTET,
+  });
+}
 
 /**
  * Baut eine Better-Auth-Instanz über der übergebenen Datenbank.
@@ -26,6 +65,20 @@ export function erzeugeAuth(datenbank: ZugriffsDb) {
     // Bewusst aus: kein Passwort-Pfad, damit es kein schwächstes Glied gibt.
     emailAndPassword: { enabled: false },
 
+    /*
+     * Ausdrücklich eingeschaltet, nicht der Voreinstellung überlassen: Better
+     * Auth begrenzt sonst nur in der Produktion und großzügiger (100 Anfragen
+     * je 10 Sekunden).
+     *
+     * Der Grund ist die Abweisungstabelle. Jeder abgelehnte Anmeldeversuch legt
+     * dort eine Zeile an, und dieser Weg ist von außen ohne Anmeldung
+     * erreichbar — ohne Begrenzung könnte jemand die Tabelle mit selbst
+     * erfundenen Adressen vollschreiben. 20 Versuche pro Minute und Herkunft
+     * sind für eine Anwendung mit einer Handvoll eingeladener Personen reichlich
+     * und begrenzen das Wachstum wirksam.
+     */
+    rateLimit: { enabled: true, window: 60, max: 20 },
+
     socialProviders: {
       google: {
         clientId: env.GOOGLE_CLIENT_ID,
@@ -38,31 +91,14 @@ export function erzeugeAuth(datenbank: ZugriffsDb) {
         create: {
           // Einziger Punkt, durch den JEDER Registrierungspfad muss —
           // Google, Passkey, alles. Kein Weg daran vorbei.
+          //
+          // Aber: Er feuert nur beim **Anlegen** des Kontos. Für alles danach
+          // sorgt das Sitzungs-Gate weiter unten.
           before: async (user, kontext) => {
             try {
               await pruefeZugang(datenbank, user.email);
             } catch (fehler) {
               if (fehler instanceof ZugriffVerweigert) {
-                /*
-                 * Einziger Ort, an dem eine Abweisung überhaupt festgehalten
-                 * werden kann — weiter unten steht ausdrücklich, dass die
-                 * Adresse in nichts landen darf, was nach außen geht.
-                 *
-                 * `haltAbweisungFest` wirft konstruktionsbedingt nie (der Fang
-                 * liegt in der Funktion selbst, damit kein Umbau hier ihn
-                 * weglassen kann). Damit kann ein kaputtes Protokoll die
-                 * Abweisung darunter nicht ersetzen: Ein fehlendes Protokoll
-                 * darf niemals zu einer offenen Registrierung führen.
-                 *
-                 * `kontext.path` ist der Endpunktpfad von Better Auth
-                 * (`/callback/google`, `/passkey/…`) und sagt, auf welchem Weg
-                 * jemand angeklopft hat. Der Kontext kann `null` sein.
-                 */
-                await haltAbweisungFest(datenbank, {
-                  email: user.email,
-                  weg: typeof kontext?.path === "string" ? kontext.path : null,
-                });
-
                 /*
                  * `message` und `code` tragen absichtlich denselben Wert —
                  * beides sind hier Marken, kein Fließtext.
@@ -96,15 +132,49 @@ export function erzeugeAuth(datenbank: ZugriffsDb) {
                  * Better Call fädelt `body.cause` in den Fehler ein, und der
                  * Body wird auf dem 403-Weg serialisiert.
                  *
-                 * Nach **innen** steht sie sehr wohl: `haltAbweisungFest` oben
+                 * Nach **innen** steht sie sehr wohl: `haltFestUndBaueAbweisung`
                  * legt sie in `abweisung` ab, wo nur die angemeldete
                  * betreibende Person sie sieht (`/verwaltung/zugriff`), und
                  * wo sie nach `AUFBEWAHRUNG_TAGE` wieder verschwindet.
                  */
-                throw new APIError("FORBIDDEN", {
-                  code: ZUGANG_NICHT_FREIGESCHALTET,
-                  message: ZUGANG_NICHT_FREIGESCHALTET,
-                });
+                throw await haltFestUndBaueAbweisung(datenbank, fehler, kontext);
+              }
+              throw fehler;
+            }
+          },
+        },
+      },
+
+      session: {
+        create: {
+          /*
+           * Die Prüfung, die „Zugang entziehen" überhaupt wirksam macht.
+           *
+           * Das Gate darüber feuert genau einmal, beim Anlegen des Kontos. Wer
+           * schon ein Konto hatte, kam danach ohne jede weitere Prüfung
+           * herein — ein Entzug war also für genau die Personen wirkungslos,
+           * für die man den Knopf drückt. Zu jeder Anmeldung gehört dagegen
+           * eine neue Sitzung, und `internalAdapter.createSession` führt jeden
+           * Anmeldeweg durch diesen Hook (nachgesehen in
+           * `db/internal-adapter.mjs`: `createWithHooks(data, "session", …)`).
+           *
+           * Der Hook bekommt nur die Sitzungsdaten — `userId`, `token`,
+           * `expiresAt` —, aber keine Adresse; `pruefeZugangFuerNutzer` schlägt
+           * sie nach. Das kostet eine Abfrage pro Anmeldung, nicht pro Aufruf:
+           * Bestehende Sitzungen werden hier nicht angefasst.
+           *
+           * Dieselben drei Zusagen wie oben: jede nicht freigeschaltete Adresse
+           * wird abgewiesen, ein Nicht-`ZugriffVerweigert` fliegt unverändert
+           * weiter (ein Datenbankausfall darf keine offene Anmeldung ergeben),
+           * und ein Fehler beim Mitschreiben kann die Abweisung nicht
+           * verschlucken.
+           */
+          before: async (sitzung, kontext) => {
+            try {
+              await pruefeZugangFuerNutzer(datenbank, sitzung.userId);
+            } catch (fehler) {
+              if (fehler instanceof ZugriffVerweigert) {
+                throw await haltFestUndBaueAbweisung(datenbank, fehler, kontext);
               }
               throw fehler;
             }

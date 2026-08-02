@@ -5,9 +5,12 @@ import {
   istEmailZugelassen,
   normalisiereEmail,
   pruefeZugang,
+  pruefeZugangFuerNutzer,
 } from "@/lib/zugriff";
 import { allowedEmail } from "@/db/schema/zugriff";
+import { user } from "@/db/schema/auth";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
+import { faengtFehler } from "./helfer/fehler";
 
 let umgebung: TestDatenbank;
 
@@ -21,7 +24,16 @@ beforeAll(async () => {
       erstellt_am timestamptz not null default now(),
       constraint allowed_email_nicht_leer check (email <> ''),
       constraint allowed_email_klein check (email = lower(email))
-    )
+    );
+    create table "user" (
+      id text primary key,
+      name text not null,
+      email text not null unique,
+      email_verified boolean not null default false,
+      image text,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
   `);
 }, 120_000);
 
@@ -30,8 +42,14 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await umgebung.db.execute(sql`truncate table allowed_email`);
+  await umgebung.db.execute(sql`truncate table allowed_email, "user"`);
 });
+
+/** Legt eine Nutzerzeile an und liefert deren Kennung zurück. */
+async function legeNutzerAn(email: string, id = "u1") {
+  await umgebung.db.insert(user).values({ id, name: "Wer", email, updatedAt: new Date() });
+  return id;
+}
 
 describe("normalisiereEmail", () => {
   it("senkt Groß- auf Kleinschreibung und entfernt Leerzeichen", () => {
@@ -110,5 +128,58 @@ describe("pruefeZugang", () => {
     await expect(pruefeZugang(umgebung.db, undefined)).rejects.toBeInstanceOf(ZugriffVerweigert);
     await expect(pruefeZugang(umgebung.db, null)).rejects.toBeInstanceOf(ZugriffVerweigert);
     await expect(pruefeZugang(umgebung.db, "")).rejects.toBeInstanceOf(ZugriffVerweigert);
+  });
+});
+
+/*
+ * Die Prüfung, die aus „Zugang entziehen" eine echte Aussperrung macht.
+ *
+ * Der Sitzungs-Hook von Better Auth bekommt nur die Sitzungsdaten — darin steht
+ * `userId`, aber keine Adresse. Diese Funktion schlägt sie nach und prüft sie.
+ */
+describe("pruefeZugangFuerNutzer", () => {
+  it("lässt einen freigeschalteten Nutzer passieren und liefert seine Adresse", async () => {
+    await umgebung.db.insert(allowedEmail).values({ id: "1", email: "christopher@example.at" });
+    const id = await legeNutzerAn("christopher@example.at");
+
+    expect(await pruefeZugangFuerNutzer(umgebung.db, id)).toBe("christopher@example.at");
+  });
+
+  /*
+   * Der eigentliche Punkt: Ein Konto besteht, die Adresse steht nicht mehr auf
+   * der Liste. Vor dieser Prüfung kam diese Person ungehindert wieder herein,
+   * weil `user.create.before` nur beim Anlegen des Kontos feuert.
+   */
+  it("weist einen Nutzer ab, dessen Adresse nicht mehr freigeschaltet ist", async () => {
+    const id = await legeNutzerAn("entzogen@example.at");
+
+    expect(await faengtFehler(() => pruefeZugangFuerNutzer(umgebung.db, id))).toBeInstanceOf(
+      ZugriffVerweigert,
+    );
+  });
+
+  /*
+   * `user.email` trägt die Schreibweise des Anbieters und wird nirgends
+   * normalisiert; `allowed_email.email` ist per Constraint kleingeschrieben.
+   * Ohne Normalisierung in der Prüfung würde diese Person fälschlich
+   * ausgesperrt.
+   */
+  it("erkennt die Freischaltung unabhängig von der Schreibweise der Nutzerzeile", async () => {
+    await umgebung.db.insert(allowedEmail).values({ id: "1", email: "gross@example.at" });
+    const id = await legeNutzerAn("Gross@Example.AT");
+
+    expect(await pruefeZugangFuerNutzer(umgebung.db, id)).toBe("gross@example.at");
+  });
+
+  it("weist ab, wenn es zu der Kennung gar keinen Nutzer gibt", async () => {
+    expect(
+      await faengtFehler(() => pruefeZugangFuerNutzer(umgebung.db, "gibtesnicht")),
+    ).toBeInstanceOf(ZugriffVerweigert);
+  });
+
+  it("weist ohne Kennung ab", async () => {
+    expect(await faengtFehler(() => pruefeZugangFuerNutzer(umgebung.db, ""))).toBeInstanceOf(
+      ZugriffVerweigert,
+    );
   });
 });

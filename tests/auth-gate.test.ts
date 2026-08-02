@@ -1,10 +1,12 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { sql } from "drizzle-orm";
 import { APIError } from "better-auth/api";
 import { erzeugeAuth } from "@/lib/auth";
 import { ABWEISUNG, ZUGANG_NICHT_FREIGESCHALTET, deuteRueckleitung } from "@/lib/anmeldung";
 import { holeAbweisungen } from "@/lib/abweisung";
+import { entzieheZugang } from "@/lib/einladung";
 import { allowedEmail } from "@/db/schema/zugriff";
+import { user } from "@/db/schema/auth";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
 import { faengtFehler } from "./helfer/fehler";
 
@@ -43,6 +45,26 @@ async function erzeugeAbweisungsTabelle(db: TestDatenbank["db"]) {
   `);
 }
 
+/**
+ * Führt die Aktion aus, während `console.warn` stummgeschaltet ist, und
+ * bestätigt, dass überhaupt gewarnt wurde.
+ *
+ * Die Tests, die das Protokoll absichtlich zerstören, erzeugen sonst echte
+ * Warnungen in der Testausgabe. Stummschalten allein wäre aber zu viel des
+ * Guten: Dass der Ausfall gemeldet wird, ist Teil der Zusage — still
+ * verschluckt wäre er im Betrieb unauffindbar.
+ */
+async function ohneWarnung<T>(aktion: () => Promise<T>): Promise<T> {
+  const stille = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const ergebnis = await aktion();
+    expect(stille).toHaveBeenCalled();
+    return ergebnis;
+  } finally {
+    stille.mockRestore();
+  }
+}
+
 let umgebung: TestDatenbank;
 let auth: ReturnType<typeof erzeugeAuth>;
 
@@ -50,6 +72,13 @@ let auth: ReturnType<typeof erzeugeAuth>;
 function holeGate() {
   const hook = auth.options.databaseHooks?.user?.create?.before;
   if (!hook) throw new Error("databaseHooks.user.create.before ist nicht verdrahtet");
+  return hook;
+}
+
+/** Dasselbe für den Hook vor jedem Sitzungs-Insert — die Prüfung bei Anmeldung. */
+function holeSitzungsGate() {
+  const hook = auth.options.databaseHooks?.session?.create?.before;
+  if (!hook) throw new Error("databaseHooks.session.create.before ist nicht verdrahtet");
   return hook;
 }
 
@@ -69,7 +98,19 @@ beforeAll(async () => {
       image text,
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
-    )
+    );
+    -- Für den Nachweis, dass ein Entzug wirklich aussperrt: Dafür muss
+    -- Better Auths echter createSession-Pfad laufen können.
+    create table session (
+      id text primary key,
+      expires_at timestamptz not null,
+      token text not null unique,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      ip_address text,
+      user_agent text,
+      user_id text not null references "user"(id) on delete cascade
+    );
   `);
   auth = erzeugeAuth(umgebung.db);
 }, 120_000);
@@ -174,8 +215,8 @@ describe("Mitschreiben der Abweisung", () => {
     await umgebung.db.execute(sql`drop table abweisung`);
     try {
       const gate = holeGate();
-      const fehler = await faengtFehler(() =>
-        gate({ email: "fremd@example.at", name: "Fremd" } as never, {} as never),
+      const fehler = await ohneWarnung(() =>
+        faengtFehler(() => gate({ email: "fremd@example.at", name: "Fremd" } as never, {} as never)),
       );
 
       expect(fehler).toBeInstanceOf(APIError);
@@ -277,6 +318,134 @@ describe("Ausgesendeter Fehlerparameter", () => {
       gate({ email: "christopher@example.at", name: "Christopher" } as never, {} as never),
     );
     expect(fehler).toBeUndefined();
+  });
+});
+
+/*
+ * Das Gate, das „Zugang entziehen" überhaupt erst wirksam macht.
+ *
+ * `user.create.before` feuert genau einmal — beim Anlegen des Kontos. Wer
+ * bereits ein Konto hatte, kam danach ohne jede Prüfung wieder herein; ein
+ * Entzug war für genau die Personen wirkungslos, für die man den Knopf drückt.
+ * Diese Prüfung läuft bei **jeder** Anmeldung, weil zu jeder Anmeldung eine
+ * Sitzung angelegt wird.
+ */
+describe("Sitzungs-Gate", () => {
+  async function legeNutzerAn(email: string, id = "s1") {
+    await umgebung.db.insert(user).values({ id, name: "Wer", email, updatedAt: new Date() });
+    return id;
+  }
+
+  it("ist als databaseHooks.session.create.before verdrahtet", () => {
+    expect(typeof holeSitzungsGate()).toBe("function");
+  });
+
+  it("lässt eine Sitzung für eine freigeschaltete Adresse zu", async () => {
+    await umgebung.db.insert(allowedEmail).values({ id: "1", email: "erlaubt@example.at" });
+    const id = await legeNutzerAn("erlaubt@example.at");
+
+    const fehler = await faengtFehler(() =>
+      holeSitzungsGate()({ userId: id, token: "t" } as never, {} as never),
+    );
+    expect(fehler).toBeUndefined();
+  });
+
+  it("weist eine Sitzung für eine entzogene Adresse mit 403 ab", async () => {
+    const id = await legeNutzerAn("entzogen@example.at");
+
+    const fehler = await faengtFehler(() =>
+      holeSitzungsGate()({ userId: id, token: "t" } as never, {} as never),
+    );
+    expect(fehler).toBeInstanceOf(APIError);
+    expect((fehler as APIError).statusCode).toBe(403);
+  });
+
+  it("trägt die abgewiesene Adresse nicht in das, was nach außen geht", async () => {
+    const id = await legeNutzerAn("entzogen@example.at");
+
+    const fehler = await faengtFehler(() =>
+      holeSitzungsGate()({ userId: id, token: "t" } as never, {} as never),
+    );
+    const koerper = (fehler as APIError).body;
+    expect(koerper?.message).not.toContain("entzogen@example.at");
+    expect(koerper?.code).not.toContain("entzogen@example.at");
+  });
+
+  it("hält den abgewiesenen Anmeldeversuch fest", async () => {
+    const id = await legeNutzerAn("entzogen@example.at");
+
+    await faengtFehler(() =>
+      holeSitzungsGate()({ userId: id, token: "t" } as never, {
+        path: "/callback/google",
+      } as never),
+    );
+
+    const [eintrag] = await holeAbweisungen(umgebung.db);
+    expect(eintrag?.email).toBe("entzogen@example.at");
+    expect(eintrag?.weg).toBe("/callback/google");
+  });
+
+  // Dieselbe Zusage wie beim Registrierungs-Gate: Ein kaputtes Protokoll darf
+  // die Abweisung nicht ersetzen.
+  it("weist trotzdem ab, wenn das Mitschreiben scheitert", async () => {
+    const id = await legeNutzerAn("entzogen@example.at");
+    await umgebung.db.execute(sql`drop table abweisung`);
+    try {
+      const fehler = await ohneWarnung(() =>
+        faengtFehler(() => holeSitzungsGate()({ userId: id, token: "t" } as never, {} as never)),
+      );
+      expect(fehler).toBeInstanceOf(APIError);
+      expect((fehler as APIError).statusCode).toBe(403);
+    } finally {
+      await erzeugeAbweisungsTabelle(umgebung.db);
+    }
+  });
+
+  // Schützt den else-Zweig: Ein Datenbankausfall darf keine offene Anmeldung
+  // ergeben, also muss der Fehler unverändert weiterfliegen statt zu einem
+  // APIError zu werden — sonst sähe ein Ausfall aus wie eine saubere Abweisung.
+  it("wirft einen Datenbankfehler unverändert weiter", async () => {
+    const id = await legeNutzerAn("entzogen@example.at");
+    await umgebung.db.execute(sql`drop table allowed_email`);
+    try {
+      const fehler = await faengtFehler(() =>
+        holeSitzungsGate()({ userId: id, token: "t" } as never, {} as never),
+      );
+      expect(fehler).toBeDefined();
+      expect(fehler).not.toBeInstanceOf(APIError);
+    } finally {
+      await erzeugeAllowedEmailTabelle(umgebung.db);
+    }
+  });
+});
+
+/*
+ * Der Beweis, um den es bei dieser Änderung geht — über Better Auths echten
+ * Erstellungspfad statt über den Hook direkt. `internalAdapter.createSession`
+ * ist der Aufruf, den jede Anmeldung macht.
+ */
+describe("Entzug sperrt wirklich aus", () => {
+  it("lässt eine freigeschaltete Person eine Sitzung anlegen, die entzogene nicht mehr", async () => {
+    await umgebung.db.insert(allowedEmail).values({ id: "1", email: "person@example.at" });
+    await umgebung.db
+      .insert(user)
+      .values({ id: "p1", name: "Person", email: "person@example.at", updatedAt: new Date() });
+
+    const context = await auth.$context;
+
+    // Vor dem Entzug: Anmelden geht.
+    const sitzung = await context.internalAdapter.createSession("p1");
+    expect(sitzung.userId).toBe("p1");
+
+    // Entzug — genau das, was die Verwaltungsseite auslöst.
+    await entzieheZugang(umgebung.db, "person@example.at");
+
+    // Danach: keine neue Sitzung mehr, obwohl das Konto weiter besteht.
+    const fehler = await faengtFehler(() => context.internalAdapter.createSession("p1"));
+    expect(fehler).toBeDefined();
+
+    // Und das Konto ist noch da — ausgesperrt, nicht gelöscht.
+    expect((await umgebung.db.select().from(user)).length).toBe(1);
   });
 });
 
