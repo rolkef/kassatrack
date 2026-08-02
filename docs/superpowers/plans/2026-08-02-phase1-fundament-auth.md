@@ -838,6 +838,8 @@ export async function faengtFehler(aktion: () => Promise<unknown>): Promise<unkn
 ```ts
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { sql } from "drizzle-orm";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { APIError } from "better-auth/api";
 import { erzeugeAuth } from "@/lib/auth";
 import { allowedEmail } from "@/db/schema/zugriff";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
@@ -855,6 +857,23 @@ function holeGate() {
 
 beforeAll(async () => {
   umgebung = await starteTestDatenbank();
+  // Die Better-Auth-Tabellen müssen hier ebenfalls entstehen, sonst kann der
+  // Adapter-Test seine Modelle nicht auflösen. Die erzeugte Migration auf die
+  // Wegwerf-Datenbank anwenden — dann entspricht die Testdatenbank exakt der
+  // Produktionsdatenbank, statt ein zweites handgepflegtes Schema zu führen,
+  // das auseinanderlaufen kann.
+  await migrate(umgebung.db, { migrationsFolder: "./drizzle" });
+  auth = erzeugeAuth(umgebung.db);
+}, 120_000);
+
+afterAll(async () => {
+  await umgebung.stop();
+});
+
+// Nicht `truncate`: ein Test lässt die Tabelle absichtlich fallen, um einen
+// Datenbankausfall zu erzeugen. Neu anlegen ist daher robuster als leeren.
+beforeEach(async () => {
+  await umgebung.db.execute(sql`drop table if exists allowed_email`);
   await umgebung.db.execute(sql`
     create table allowed_email (
       id text primary key,
@@ -865,15 +884,6 @@ beforeAll(async () => {
       constraint allowed_email_klein check (email = lower(email))
     )
   `);
-  auth = erzeugeAuth(umgebung.db);
-}, 120_000);
-
-afterAll(async () => {
-  await umgebung.stop();
-});
-
-beforeEach(async () => {
-  await umgebung.db.execute(sql`truncate table allowed_email`);
 });
 
 describe("Registrierungs-Gate", () => {
@@ -907,6 +917,32 @@ describe("Auth-Konfiguration", () => {
   it("hat E-Mail-und-Passwort deaktiviert", () => {
     expect(auth.options.emailAndPassword?.enabled ?? false).toBe(false);
   });
+
+  // Ohne `schema` findet der Adapter seine Modelle nicht und JEDE Auth-Abfrage
+  // wirft zur Laufzeit. Weder Typcheck noch Build noch die Hook-Tests merken das,
+  // weil sie den Adapter nie anfassen. Dieser Test ist die einzige Absicherung.
+  it("kann Modelle über den Adapter auflösen", async () => {
+    const kontext = await auth.$context;
+    expect(await kontext.adapter.findOne({ model: "user", where: [] })).toBeNull();
+  });
+});
+
+describe("Fehlerweitergabe", () => {
+  // Schützt `throw fehler` in der else-Verzweigung. Ohne diesen Test könnte die
+  // Zeile entfernt werden, und ein Datenbankausfall würde zu offener
+  // Registrierung führen, ohne dass ein Test rot wird.
+  it("gibt einen Datenbankfehler weiter, statt ihn als Ablehnung zu behandeln", async () => {
+    await umgebung.db.execute(sql`drop table allowed_email`);
+    const gate = holeGate();
+
+    const fehler = await faengtFehler(() =>
+      gate({ email: "christopher@example.at", name: "Christopher" } as never, {} as never),
+    );
+
+    expect(fehler).toBeDefined();
+    // Eine Ablehnung wäre ein APIError. Alles andere muss durchgereicht werden.
+    expect(fehler).not.toBeInstanceOf(APIError);
+  });
 });
 ```
 
@@ -925,6 +961,7 @@ import { APIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { passkey } from "@better-auth/passkey";
+import * as authSchema from "@/db/schema/auth";
 import { db } from "@/db";
 import { env } from "@/lib/env";
 import { pruefeZugang, ZugriffVerweigert, type ZugriffsDb } from "@/lib/zugriff";
@@ -938,7 +975,9 @@ const rpID = new URL(env.BETTER_AUTH_URL).hostname;
  */
 export function erzeugeAuth(datenbank: ZugriffsDb) {
   return betterAuth({
-    database: drizzleAdapter(datenbank, { provider: "pg" }),
+    // schema ist Pflicht: ohne sie sucht der Adapter in db._.fullSchema,
+    // das bei drizzle(pool) leer ist -- jede Auth-Abfrage wirft dann zur Laufzeit.
+    database: drizzleAdapter(datenbank, { provider: "pg", schema: authSchema }),
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
 
@@ -957,7 +996,7 @@ export function erzeugeAuth(datenbank: ZugriffsDb) {
         create: {
           // Einziger Punkt, durch den JEDER Registrierungspfad muss —
           // Google, Passkey, alles. Kein Weg daran vorbei.
-          before: async (user) => {
+          before: async (user, _context) => {
             try {
               await pruefeZugang(datenbank, user.email);
             } catch (fehler) {
@@ -1022,7 +1061,7 @@ export const { POST, GET } = toNextJsHandler(auth);
 - [ ] **Step 7: Test laufen lassen und Erfolg bestätigen**
 
 Run: `bun test tests/auth-gate.test.ts`
-Expected: PASS, 5 pass 0 fail
+Expected: PASS, 7 pass 0 fail
 
 - [ ] **Step 8: Commit**
 
