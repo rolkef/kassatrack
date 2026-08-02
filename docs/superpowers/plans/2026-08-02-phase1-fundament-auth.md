@@ -577,6 +577,7 @@ import {
 } from "@/lib/zugriff";
 import { allowedEmail } from "@/db/schema/zugriff";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
+import { faengtFehler } from "./helfer/fehler";
 
 let umgebung: TestDatenbank;
 
@@ -587,7 +588,9 @@ beforeAll(async () => {
       id text primary key,
       email text not null unique,
       hinzugefuegt_von text,
-      erstellt_am timestamptz not null default now()
+      erstellt_am timestamptz not null default now(),
+      constraint allowed_email_nicht_leer check (email <> ''),
+      constraint allowed_email_klein check (email = lower(email))
     )
   `);
 }, 120_000);
@@ -624,6 +627,29 @@ describe("istEmailZugelassen", () => {
   it("weist bei komplett leerer Allowlist ab", async () => {
     expect(await istEmailZugelassen(umgebung.db, "irgendwer@example.at")).toBe(false);
   });
+
+  // Deckt die Wächterzeile `normalisiert === ""` ab. Ohne diesen Test könnte sie
+  // gelöscht werden, ohne dass die Suite rot wird.
+  it("weist Eingaben ab, die nur aus Leerzeichen bestehen", async () => {
+    await umgebung.db.insert(allowedEmail).values({ id: "1", email: "christopher@example.at" });
+    expect(await istEmailZugelassen(umgebung.db, "   ")).toBe(false);
+  });
+});
+
+describe("Datenbank-Bedingungen", () => {
+  it("verweigert einen leeren Eintrag", async () => {
+    const fehler = await faengtFehler(() =>
+      umgebung.db.insert(allowedEmail).values({ id: "1", email: "" }),
+    );
+    expect(fehler).toBeDefined();
+  });
+
+  it("verweigert einen großgeschriebenen Eintrag", async () => {
+    const fehler = await faengtFehler(() =>
+      umgebung.db.insert(allowedEmail).values({ id: "1", email: "Christopher@Example.AT" }),
+    );
+    expect(fehler).toBeDefined();
+  });
 });
 
 describe("pruefeZugang", () => {
@@ -657,15 +683,25 @@ Expected: FAIL — `Cannot find module '@/lib/zugriff'`
 
 `src/db/schema/zugriff.ts`:
 
-```ts
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
+Die beiden `check`-Bedingungen sind nicht Kosmetik. `NOT NULL` schließt den leeren String **nicht** aus, und ein `''`-Eintrag würde jede Eingabe aus reinen Leerzeichen zum Treffer machen — der Schutz dagegen hinge sonst allein an einer Zeile in `zugriff.ts`. Die zweite Bedingung erzwingt kleingeschriebene Speicherung: da jede Abfrage normalisiert, wäre eine großgeschrieben eingetragene Adresse dauerhaft ausgesperrt, ohne dass jemand den Grund sieht.
 
-export const allowedEmail = pgTable("allowed_email", {
-  id: text("id").primaryKey(),
-  email: text("email").notNull().unique(),
-  hinzugefuegtVon: text("hinzugefuegt_von"),
-  erstelltAm: timestamp("erstellt_am", { withTimezone: true }).notNull().defaultNow(),
-});
+```ts
+import { sql } from "drizzle-orm";
+import { check, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+
+export const allowedEmail = pgTable(
+  "allowed_email",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull().unique(),
+    hinzugefuegtVon: text("hinzugefuegt_von"),
+    erstelltAm: timestamp("erstellt_am", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (tabelle) => [
+    check("allowed_email_nicht_leer", sql`${tabelle.email} <> ''`),
+    check("allowed_email_klein", sql`${tabelle.email} = lower(${tabelle.email})`),
+  ],
+);
 
 export const invite = pgTable("invite", {
   id: text("id").primaryKey(),
@@ -727,7 +763,7 @@ export async function pruefeZugang(db: ZugriffsDb, email: string | undefined | n
 - [ ] **Step 5: Test laufen lassen und Erfolg bestätigen**
 
 Run: `bun test tests/zugriff.test.ts`
-Expected: PASS, 8 pass 0 fail
+Expected: PASS, 11 pass 0 fail
 
 - [ ] **Step 6: Commit**
 
@@ -754,6 +790,11 @@ git commit -m "feat: Allowlist-Logik mit vollständiger Testabdeckung"
   - Route `GET|POST /api/auth/*`
 
 **Kernpunkt dieser Task:** Das Gate sitzt in `databaseHooks.user.create.before`, **nicht** in `hooks.before` auf `/sign-up/email`. Grund: `hooks.before` mit Pfadprüfung deckt nur den E-Mail-Registrierungspfad ab. Google-OAuth und Passkey-Registrierung laufen daran vorbei und würden ungeprüft Accounts anlegen. `databaseHooks.user.create.before` ist der einzige Punkt, durch den **jeder** Registrierungspfad muss.
+
+**Zwei Abnahmekriterien, die aus dem Sicherheitsreview von Task 4 stammen.** Beide beschreiben Wege, auf denen eine Ablehnung versehentlich zu einer Zulassung wird:
+
+1. **Ein Datenbankausfall darf nicht zu offener Registrierung führen.** `pruefeZugang` wirft bei einem Datenbankfehler den Treiberfehler, nicht `ZugriffVerweigert`. Ein `catch`, das nur auf `instanceof ZugriffVerweigert` prüft und sonst nichts tut, würde aus einem Ausfall eine offene Anmeldung machen. Der Code unten wirft deshalb im `else`-Zweig ausdrücklich weiter (`throw fehler`). Diese Zeile ist sicherheitsrelevant und darf nicht wegoptimiert werden.
+2. **Ein fehlendes `await` vor `pruefeZugang` würde still zulassen.** Ohne `await` liefert der Aufruf ein abgelehntes Versprechen, das `try`/`catch` greift nicht, und der Hook kehrt ohne Fehler zurück. Ein Linter würde das normalerweise fangen, aber ESLint ist im Projekt wegen TypeScript 7 vorübergehend abgeschaltet. Abgesichert ist es stattdessen durch den Test „weist eine nicht freigeschaltete Adresse ab" — der schlägt fehl, sobald das `await` fehlt. Dieser Test ist damit nicht optional.
 
 - [ ] **Step 1: Abhängigkeiten**
 
@@ -819,7 +860,9 @@ beforeAll(async () => {
       id text primary key,
       email text not null unique,
       hinzugefuegt_von text,
-      erstellt_am timestamptz not null default now()
+      erstellt_am timestamptz not null default now(),
+      constraint allowed_email_nicht_leer check (email <> ''),
+      constraint allowed_email_klein check (email = lower(email))
     )
   `);
   auth = erzeugeAuth(umgebung.db);
@@ -1373,7 +1416,9 @@ beforeAll(async () => {
       id text primary key,
       email text not null unique,
       hinzugefuegt_von text,
-      erstellt_am timestamptz not null default now()
+      erstellt_am timestamptz not null default now(),
+      constraint allowed_email_nicht_leer check (email <> ''),
+      constraint allowed_email_klein check (email = lower(email))
     );
     create table invite (
       id text primary key,
