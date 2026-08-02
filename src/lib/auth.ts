@@ -4,6 +4,7 @@ import { nextCookies } from "better-auth/next-js";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { passkey } from "@better-auth/passkey";
 import { db } from "@/db";
+import * as authSchema from "@/db/schema/auth";
 import { env } from "@/lib/env";
 import { pruefeZugang, ZugriffVerweigert, type ZugriffsDb } from "@/lib/zugriff";
 
@@ -16,7 +17,7 @@ const rpID = new URL(env.BETTER_AUTH_URL).hostname;
  */
 export function erzeugeAuth(datenbank: ZugriffsDb) {
   return betterAuth({
-    database: drizzleAdapter(datenbank, { provider: "pg" }),
+    database: drizzleAdapter(datenbank, { provider: "pg", schema: authSchema }),
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
 
