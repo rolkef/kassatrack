@@ -358,7 +358,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres-daten:/var/lib/postgresql/data
+      - postgres-daten:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kassatrack"]
       interval: 5s
@@ -377,7 +377,7 @@ services:
     ports:
       - "5433:5432"
     tmpfs:
-      - /var/lib/postgresql/data
+      - /var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kassatrack"]
       interval: 5s
