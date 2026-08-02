@@ -65,12 +65,16 @@ export async function starteTestDatenbank(): Promise<TestDatenbank> {
       },
     };
   } catch (fehler) {
-    await pool.end();
-    await datenbankLoeschen(name);
+    // Aufraeumen darf den urspruenglichen Fehler niemals verdecken — schlaegt
+    // pool.end() oder das Loeschen selbst fehl, waere sonst die eigentliche
+    // Fehlerursache (fehler) unwiederbringlich verloren.
+    await pool.end().catch(() => {});
+    await datenbankLoeschen(name).catch(() => {});
     throw new Error(
       `Testdatenbank "${name}" konnte nicht eingerichtet werden und wurde ` +
         `wieder entfernt. Läuft der Test-Postgres mit der Erweiterung pg_trgm? ` +
         `Ursache: ${(fehler as Error).message}`,
+      { cause: fehler },
     );
   }
 }
