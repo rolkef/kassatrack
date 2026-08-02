@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { sql } from "drizzle-orm";
 import { APIError } from "better-auth/api";
 import { erzeugeAuth } from "@/lib/auth";
-import { ABWEISUNG, ZUGANG_NICHT_FREIGESCHALTET } from "@/lib/anmeldung";
+import { ABWEISUNG, ZUGANG_NICHT_FREIGESCHALTET, deuteRueckleitung } from "@/lib/anmeldung";
 import { allowedEmail } from "@/db/schema/zugriff";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
 import { faengtFehler } from "./helfer/fehler";
@@ -79,35 +79,97 @@ describe("Registrierungs-Gate", () => {
     expect(fehler).toBeDefined();
   });
 
-  // Ohne `code` im APIError-Body wird die Abweisung unsichtbar: Der
-  // OAuth-Callback von Better Auth prüft `e.body?.code` und macht nur dann
-  // eine Umleitung auf `errorCallbackURL` daraus (siehe
-  // better-auth/dist/api/routes/callback.mjs). Fehlt der Code, fliegt der
-  // Fehler weiter und die Person landet auf einer englischen Standardseite
-  // statt auf der Anmeldeseite. Der Code muss zudem exakt der sein, den
-  // `deuteRueckleitung` erwartet.
-  it("gibt der Abweisung den Code mit, den die Anmeldeseite auswertet", async () => {
+  it("weist mit einem APIError ab, nicht mit einem beliebigen Fehler", async () => {
     const gate = holeGate();
     const fehler = await faengtFehler(() =>
       gate({ email: "fremd@example.at", name: "Fremd" } as never, {} as never),
     );
 
     expect(fehler).toBeInstanceOf(APIError);
-    const koerper = (fehler as APIError).body;
-    expect(koerper?.code).toBe(ZUGANG_NICHT_FREIGESCHALTET);
-    expect(koerper?.message).toBe(ABWEISUNG);
+    expect((fehler as APIError).statusCode).toBe(403);
   });
 
-  // Better Auth hängt `message` als `error_description` an die
-  // Rückleitungs-URL. Eine E-Mail-Adresse stünde damit im Browserverlauf und
-  // in jedem Zugriffsprotokoll davor — deshalb bleibt sie serverseitig.
-  it("trägt die abgewiesene Adresse nicht in die Meldung, die nach außen geht", async () => {
+  // Better Auth hängt die Meldung an die Rückleitungs-URL. Eine E-Mail-Adresse
+  // stünde damit im Browserverlauf und in jedem Zugriffsprotokoll davor.
+  it("trägt die abgewiesene Adresse nicht in das, was nach außen geht", async () => {
     const gate = holeGate();
     const fehler = await faengtFehler(() =>
       gate({ email: "fremd@example.at", name: "Fremd" } as never, {} as never),
     );
 
-    expect((fehler as APIError).body?.message).not.toContain("fremd@example.at");
+    const koerper = (fehler as APIError).body;
+    expect(koerper?.message).not.toContain("fremd@example.at");
+    expect(koerper?.code).not.toContain("fremd@example.at");
+  });
+});
+
+/*
+ * Der eigentliche Test dieser Runde.
+ *
+ * Die erste Fassung hatte an beiden Enden übereinstimmende Konstanten und war
+ * zur Laufzeit trotzdem falsch: Better Auth nimmt auf dem Weg, den Google
+ * wirklich geht, nicht den `code`, sondern die `message` — und ersetzt darin
+ * Leerzeichen durch Unterstriche. Ein Test auf die Konstanten hätte das nie
+ * bemerkt. Deshalb wird hier nachgebaut, was Better Auth aussendet, und das
+ * Ergebnis durch `deuteRueckleitung` geschickt.
+ */
+describe("Ausgesendeter Fehlerparameter", () => {
+  /**
+   * Nachbau von `redirectOnError` aus better-auth. Zwei Quellen:
+   *
+   * - `api/routes/callback.mjs`: der Weg über `handleOAuthUserInfo` liefert
+   *   `result.error` (= `e.message`) und ruft
+   *   `redirectOnError(c, url, result.error.split(" ").join("_"))`.
+   * - `oauth2/errors.mjs`: `new URLSearchParams({ error })`.
+   */
+  function ausgesendeterParameter(fehler: APIError, weg: "meldung" | "code") {
+    const roh = weg === "meldung" ? fehler.message : (fehler.body?.code as string);
+    const umgeformt = roh.split(" ").join("_");
+    const url = new URL(`https://example.at/anmelden?${new URLSearchParams({ error: umgeformt })}`);
+    return url.searchParams.get("error");
+  }
+
+  async function abweisung() {
+    const gate = holeGate();
+    const fehler = await faengtFehler(() =>
+      gate({ email: "fremd@example.at", name: "Fremd" } as never, {} as never),
+    );
+    return fehler as APIError;
+  }
+
+  it("wird über die Meldung zu einer Abweisung gedeutet", async () => {
+    // Das ist der Weg, den eine echte Google-Anmeldung nimmt.
+    const parameter = ausgesendeterParameter(await abweisung(), "meldung");
+
+    expect(parameter).toBe(ZUGANG_NICHT_FREIGESCHALTET);
+    expect(deuteRueckleitung(parameter ?? undefined)?.abgewiesen).toBe(true);
+  });
+
+  it("wird über den Code zu einer Abweisung gedeutet", async () => {
+    // Der zweite Weg, falls der Fehler außerhalb des inneren try fliegt.
+    const parameter = ausgesendeterParameter(await abweisung(), "code");
+
+    expect(parameter).toBe(ZUGANG_NICHT_FREIGESCHALTET);
+    expect(deuteRueckleitung(parameter ?? undefined)?.abgewiesen).toBe(true);
+  });
+
+  it("bleibt unversehrt, wenn Leerzeichen zu Unterstrichen würden", async () => {
+    // Genau hier ist die erste Fassung gescheitert: ein deutscher Satz wurde
+    // zu `Diese_Adresse_ist_für_…` und lief an `deuteRueckleitung` vorbei.
+    const fehler = await abweisung();
+
+    expect(fehler.message).not.toContain(" ");
+    expect(fehler.body?.code).not.toContain(" ");
+    // Beide Wege müssen denselben Wert aussenden, sonst deutet die
+    // Anmeldeseite je nach Weg etwas anderes.
+    expect(fehler.message).toBe(fehler.body?.code as string);
+  });
+
+  it("zeigt der Person trotzdem einen deutschen Satz, keine Marke", () => {
+    const meldung = deuteRueckleitung(ZUGANG_NICHT_FREIGESCHALTET);
+
+    expect(meldung?.text).toBe(ABWEISUNG);
+    expect(meldung?.text).not.toContain("ZUGANG_NICHT");
   });
 
   it("lässt eine freigeschaltete Adresse durch", async () => {

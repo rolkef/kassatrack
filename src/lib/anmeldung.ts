@@ -19,13 +19,27 @@
  */
 
 /**
- * Der Code, den das Allowlist-Gate an Better Auth mitgibt. Better Auth
- * schreibt ihn beim Callback-Fehler als `?error=…` in die Rückleitung; die
- * Anmeldeseite erkennt daran, dass es um die Freischaltung geht und nicht um
- * einen der eingebauten OAuth-Fehler.
+ * Die Marke, an der die Anmeldeseite eine Abweisung erkennt.
  *
- * Beide Enden importieren diese Konstante, damit die Zeichenkette nicht
- * auseinanderlaufen kann.
+ * `src/lib/auth.ts` setzt sie **doppelt** — als `code` und als `message` des
+ * APIError —, weil Better Auth je nach Weg das eine oder das andere in die
+ * Rückleitung schreibt:
+ *
+ * - Der Weg, den Google tatsächlich nimmt, wird schon in
+ *   `handleOAuthUserInfo` abgefangen und landet über
+ *   `redirectOnError(…, result.error.split(" ").join("_"))` in der URL —
+ *   dort zählt die **Meldung**.
+ * - Fliegt ein APIError außerhalb jenes inneren try, greift
+ *   `if (isAPIError(e) && e.body?.code)` — dort zählt der **Code**.
+ *
+ * Deshalb ist das hier eine Marke ohne Leerzeichen und kein Satz: `split(" ")`
+ * ließe einen Satz zu `Diese_Adresse_ist_…` werden und `deuteRueckleitung`
+ * liefe daran vorbei. Der Satz für Menschen steht in `ABWEISUNG` und wird
+ * erst hier auf der Seite eingesetzt.
+ *
+ * Beide Enden importieren diese Konstante, damit sie nicht auseinanderlaufen.
+ * `tests/auth-gate.test.ts` prüft zusätzlich den **ausgesendeten** Wert, nicht
+ * bloß die Konstante — genau daran ist die erste Fassung gescheitert.
  */
 export const ZUGANG_NICHT_FREIGESCHALTET = "ZUGANG_NICHT_FREIGESCHALTET";
 

@@ -6,7 +6,7 @@ import { passkey } from "@better-auth/passkey";
 import { db } from "@/db";
 import * as authSchema from "@/db/schema/auth";
 import { env } from "@/lib/env";
-import { ABWEISUNG, ZUGANG_NICHT_FREIGESCHALTET } from "@/lib/anmeldung";
+import { ZUGANG_NICHT_FREIGESCHALTET } from "@/lib/anmeldung";
 import { pruefeZugang, ZugriffVerweigert, type ZugriffsDb } from "@/lib/zugriff";
 
 const rpID = new URL(env.BETTER_AUTH_URL).hostname;
@@ -43,23 +43,43 @@ export function erzeugeAuth(datenbank: ZugriffsDb) {
             } catch (fehler) {
               if (fehler instanceof ZugriffVerweigert) {
                 /*
-                 * `code` ist hier keine Zierde, sondern die Bedingung dafür,
-                 * dass die Abweisung überhaupt sichtbar wird: Der OAuth-Callback
-                 * von Better Auth prüft `e.body?.code` und macht nur dann eine
-                 * Umleitung auf `errorCallbackURL` daraus. Ohne Code fliegt der
-                 * Fehler weiter und der Mensch landet auf einer englischen
-                 * Standard-Fehlerseite statt auf unserer Anmeldeseite.
+                 * `message` und `code` tragen absichtlich denselben Wert —
+                 * beides sind hier Marken, kein Fließtext.
                  *
-                 * Die Meldung ist bewusst allgemein und nennt die Adresse
-                 * nicht: Better Auth hängt sie als `error_description` an die
-                 * Rückleitungs-URL, und eine E-Mail-Adresse in der URL steht
-                 * danach im Browserverlauf und in jedem Zugriffsprotokoll
-                 * davor. `fehler.message` mit der Adresse bleibt für den Server
-                 * erhalten.
+                 * Grund: Better Auth erreicht die Anmeldeseite auf zwei
+                 * verschiedenen Wegen, und beide nehmen einen anderen Teil
+                 * dieses Fehlers.
+                 *
+                 * Der Weg, den eine Google-Anmeldung tatsächlich nimmt, fängt
+                 * den Fehler schon in `handleOAuthUserInfo` ab
+                 * (oauth2/link-account.mjs: `if (isAPIError(e)) return
+                 * { error: e.message, … }`) und der Callback macht daraus
+                 * `redirectOnError(…, result.error.split(" ").join("_"))`.
+                 * Dort zählt also die **Meldung**, nicht der Code — und
+                 * Leerzeichen würden zu Unterstrichen.
+                 *
+                 * Nur wenn ein APIError außerhalb jenes inneren try fliegt,
+                 * greift `callback.mjs`: `if (isAPIError(e) && e.body?.code)`
+                 * — dort zählt der **Code**.
+                 *
+                 * Ein sprechender deutscher Satz an dieser Stelle käme also
+                 * als `?error=Diese_Adresse_ist_für_KassaTrack_…` an und
+                 * liefe an `deuteRueckleitung` vorbei. Mit einer Marke stimmen
+                 * beide Wege überein, und in der URL landet kein Fließtext.
+                 * Der für Menschen geschriebene Satz steht in `ABWEISUNG` und
+                 * wird erst auf der Anmeldeseite eingesetzt.
+                 *
+                 * Achtung: Die abgewiesene Adresse steht damit **nirgends** —
+                 * weder in der URL noch in einem Protokoll. `fehler` wird hier
+                 * verworfen. Sie als `cause` mitzugeben wäre falsch: Better
+                 * Call fädelt `body.cause` in den Fehler ein, und der Body wird
+                 * auf dem 403-Weg serialisiert. Wer mitschreiben will, wer
+                 * abgewiesen wurde, tut das in der Zugriffsverwaltung
+                 * (Task 8), nicht hier.
                  */
                 throw new APIError("FORBIDDEN", {
                   code: ZUGANG_NICHT_FREIGESCHALTET,
-                  message: ABWEISUNG,
+                  message: ZUGANG_NICHT_FREIGESCHALTET,
                 });
               }
               throw fehler;
