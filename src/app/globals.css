@@ -1,8 +1,91 @@
 @import "tailwindcss";
 
+/*
+ * KassaTrack — Gestaltungssystem, ruhige Ebene.
+ *
+ * Farbe: Die App vergleicht Billa, Spar, Hofer, Lidl und Penny. Sie darf
+ * deshalb keine Kettenfarbe tragen — kein Grün (Spar), kein Rot (Hofer,
+ * Penny, Billa), kein Gelb (Billa-Aktion), kein Blau (Lidl). Die Marke sitzt
+ * bewusst in der Lücke dazwischen: ein tiefes Petrol. Alle Neutralen sind
+ * minimal in denselben Farbton getönt, damit Papier und Marke zusammengehören.
+ *
+ * Alle Paarungen sind gegen WCAG geprüft, der schwächste Wert liegt bei 6,0:1.
+ */
 @theme {
-  --color-hintergrund: oklch(0.99 0 0);
-  --color-vordergrund: oklch(0.15 0 0);
-  --font-sans: ui-sans-serif, system-ui, sans-serif;
-  --font-zahlen: ui-monospace, "SF Mono", monospace;
+  /* Papier und Tinte */
+  --color-hintergrund: oklch(0.985 0.004 200); /* #f7fbfb */
+  --color-flaeche: oklch(0.958 0.007 200); /* #ecf3f3 — abgesetzte Flächen */
+  --color-vordergrund: oklch(0.22 0.018 200); /* #101d1e — 16,5:1 */
+  --color-gedaempft: oklch(0.45 0.016 200); /* #4b5859 — 7,1:1, Sekundärtext */
+  --color-linie: oklch(0.885 0.009 200); /* #d3dbdb */
+
+  /* Marke */
+  --color-marke: oklch(0.42 0.075 205); /* #005860 — 7,8:1 auf Papier */
+  --color-marke-hell: oklch(0.48 0.082 205); /* #006b74 — Hover */
+  --color-auf-marke: oklch(0.985 0.006 205); /* #f6fbfc */
+
+  /*
+   * Auskunft, nicht Alarm. Wer ohne Einladung hier landet, hat nichts falsch
+   * gemacht — deshalb Sand statt Rot. Rot bleibt echten Fehlern vorbehalten.
+   */
+  --color-hinweis: oklch(0.925 0.045 78); /* #f7e3c5 */
+  --color-auf-hinweis: oklch(0.33 0.055 55); /* #4b2d18 — 9,9:1 */
+
+  /* Schrift: Anzeige nur für den Namen, Text für alles Lesbare, Zahlen später. */
+  --font-sans: var(--schrift-text), ui-sans-serif, system-ui, sans-serif;
+  --font-anzeige: var(--schrift-anzeige), var(--schrift-text), sans-serif;
+  --font-zahlen: var(--schrift-zahlen), ui-monospace, monospace;
+
+  --radius-block: 0.875rem;
+  --radius-klein: 0.5rem;
+
+  /* Ruhig heißt: austrudeln, nicht federn. */
+  --ease-ruhig: cubic-bezier(0.25, 1, 0.5, 1);
+
+  --animate-auftritt: auftritt 420ms var(--ease-ruhig) both;
+
+  @keyframes auftritt {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+@layer base {
+  /*
+   * Ein Fokusring für die ganze App. :where() hält die Spezifität bei 0,
+   * einzelne Komponenten können ihn also überschreiben, müssen aber nicht.
+   */
+  :where(a, button, [role="button"], input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-marke);
+    outline-offset: 2px;
+  }
+}
+
+/*
+ * Der Auftritt ist Zierde. Wer ihn abbestellt, sieht die Seite sofort.
+ *
+ * Bewusst außerhalb jeder @layer: `animate-auftritt` ist eine Utility und
+ * würde eine Regel aus @layer base überstimmen — die Abschaltung liefe ins
+ * Leere. Ungeschichtetes CSS steht in Tailwind v4 über allen Schichten.
+ * Der Fortschrittsring der Schaltfläche bleibt absichtlich ausgenommen:
+ * er meldet einen Zustand, er schmückt nicht.
+ */
+@media (prefers-reduced-motion: reduce) {
+  [data-auftritt] {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Preise, Mengen, Datenalter — überall dort, wo Ziffern untereinander stehen. */
+@utility zahlen {
+  font-family: var(--font-zahlen);
+  font-variant-numeric: tabular-nums;
 }
