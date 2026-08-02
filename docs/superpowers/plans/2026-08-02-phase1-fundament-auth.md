@@ -85,6 +85,12 @@ bun add -d @testing-library/react@16.3.2 happy-dom@20.11.1 @types/bun
 
 - [ ] **Step 3: Testrunner konfigurieren**
 
+**Wichtig:** Die DOM-Umgebung wird bewusst **nicht** global vorgeladen. `GlobalRegistrator.register()` überschreibt `Response`, `Request` und `Headers` durch happy-doms Nachbauten. Server-Tests — Route Handler, Middleware, Auth — würden dann gegen den Nachbau statt gegen Buns echte Runtime laufen und könnten grün sein, obwohl der Container etwas anderes tut. Der Vorlader setzt daher nur Umgebungsvariablen; das DOM importieren ausschließlich Komponenten-Tests.
+
+```bash
+bun add -d @happy-dom/global-registrator@20.11.1
+```
+
 `bunfig.toml`:
 
 ```toml
@@ -92,16 +98,22 @@ bun add -d @testing-library/react@16.3.2 happy-dom@20.11.1 @types/bun
 preload = ["./tests/setup.ts"]
 ```
 
-`tests/setup.ts`:
+`tests/setup.ts` — läuft vor jedem Test, richtet **kein** DOM ein:
+
+```ts
+process.env.DATABASE_URL ??= "postgres://kassatrack:kassatrack@localhost:5432/kassatrack_test";
+process.env.BETTER_AUTH_SECRET ??= "t".repeat(32);
+process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
+process.env.GOOGLE_CLIENT_ID ??= "test-id";
+process.env.GOOGLE_CLIENT_SECRET ??= "test-secret";
+```
+
+`tests/dom.ts` — wird **nur** von Komponenten-Tests importiert:
 
 ```ts
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
 GlobalRegistrator.register();
-```
-
-```bash
-bun add -d @happy-dom/global-registrator@20.11.1
 ```
 
 - [ ] **Step 4: Den fehlschlagenden Test schreiben**
@@ -278,17 +290,16 @@ export const env: Env = parseEnv(process.env);
 Run: `bun test tests/env.test.ts`
 Expected: PASS, 4 pass 0 fail
 
-Falls die Tests scheitern, weil der Modul-Top-Level-`env`-Export bei fehlenden Variablen wirft: das ist gewollt für die App, stört aber den Test. Lösung — in `tests/setup.ts` vor der Registrierung die Variablen setzen:
-
-```ts
-process.env.DATABASE_URL ??= "postgres://kassatrack:kassatrack@localhost:5433/kassatrack_test";
-process.env.BETTER_AUTH_SECRET ??= "t".repeat(32);
-process.env.BETTER_AUTH_URL ??= "http://localhost:3000";
-process.env.GOOGLE_CLIENT_ID ??= "test-id";
-process.env.GOOGLE_CLIENT_SECRET ??= "test-secret";
-```
+Der Modul-Top-Level-Export `env` wirft bei fehlenden Variablen — das ist für die App gewollt. Die Testvariablen setzt bereits `tests/setup.ts` aus Task 1, Step 3; hier ist nichts zu ergänzen.
 
 - [ ] **Step 5: `.env.example` anlegen**
+
+`.gitignore` enthält aus dem `create-next-app`-Template die Zeile `.env*`, die auch `.env.example` erfasst. Vor dem Anlegen der Datei muss deshalb eine Ausnahme ergänzt werden, sonst lässt sich die Datei nicht committen:
+
+```gitignore
+.env*
+!.env.example
+```
 
 ```bash
 # Postgres
@@ -1055,7 +1066,11 @@ git commit -m "feat: Routen-Schutz und Sicherheits-Header"
 
 `tests/anmelde-formular.test.tsx`:
 
+Diese Datei ist ein Komponenten-Test und braucht daher als **erste Zeile** den DOM-Import aus Task 1, Step 3.
+
 ```tsx
+import "./dom";
+
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
