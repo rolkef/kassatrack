@@ -19,6 +19,17 @@ function urlFuer(datenbank: string): string {
   return url.toString();
 }
 
+async function datenbankLoeschen(name: string): Promise<void> {
+  const aufraeumen = new Pool({ connectionString: VERWALTUNGS_URL });
+  try {
+    // "with (force)" trennt noch offene Verbindungen, sonst schlaegt das
+    // Loeschen fehl, wenn ein Test seinen Pool nicht sauber geschlossen hat.
+    await aufraeumen.query(`drop database if exists "${name}" with (force)`);
+  } finally {
+    await aufraeumen.end();
+  }
+}
+
 /**
  * Legt eine frische Wegwerf-Datenbank an. Jeder Aufruf bekommt eine eigene,
  * dadurch beeinflussen sich Testdateien nicht gegenseitig.
@@ -41,20 +52,25 @@ export async function starteTestDatenbank(): Promise<TestDatenbank> {
 
   const url = urlFuer(name);
   const pool = new Pool({ connectionString: url });
-  const db = drizzle(pool);
+  try {
+    const db = drizzle(pool);
+    await db.execute(sql`create extension if not exists pg_trgm`);
 
-  await db.execute(sql`create extension if not exists pg_trgm`);
-
-  return {
-    db,
-    url,
-    stop: async () => {
-      await pool.end();
-      const aufraeumen = new Pool({ connectionString: VERWALTUNGS_URL });
-      // "with (force)" trennt noch offene Verbindungen, sonst schlaegt das
-      // Loeschen fehl, wenn ein Test seinen Pool nicht sauber geschlossen hat.
-      await aufraeumen.query(`drop database if exists "${name}" with (force)`);
-      await aufraeumen.end();
-    },
-  };
+    return {
+      db,
+      url,
+      stop: async () => {
+        await pool.end();
+        await datenbankLoeschen(name);
+      },
+    };
+  } catch (fehler) {
+    await pool.end();
+    await datenbankLoeschen(name);
+    throw new Error(
+      `Testdatenbank "${name}" konnte nicht eingerichtet werden und wurde ` +
+        `wieder entfernt. Läuft der Test-Postgres mit der Erweiterung pg_trgm? ` +
+        `Ursache: ${(fehler as Error).message}`,
+    );
+  }
 }

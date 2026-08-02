@@ -33,7 +33,6 @@
   },
   "trustedDependencies": [
     "esbuild",
-    "protobufjs",
     "sharp",
     "unrs-resolver"
   ]
