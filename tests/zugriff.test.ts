@@ -18,7 +18,9 @@ beforeAll(async () => {
       id text primary key,
       email text not null unique,
       hinzugefuegt_von text,
-      erstellt_am timestamptz not null default now()
+      erstellt_am timestamptz not null default now(),
+      constraint allowed_email_nicht_leer check (email <> ''),
+      constraint allowed_email_klein check (email = lower(email))
     )
   `);
 }, 120_000);
@@ -54,6 +56,35 @@ describe("istEmailZugelassen", () => {
 
   it("weist bei komplett leerer Allowlist ab", async () => {
     expect(await istEmailZugelassen(umgebung.db, "irgendwer@example.at")).toBe(false);
+  });
+
+  it("weist Eingaben ab, die nur aus Leerzeichen bestehen", async () => {
+    await umgebung.db.insert(allowedEmail).values({ id: "1", email: "christopher@example.at" });
+    expect(await istEmailZugelassen(umgebung.db, "   ")).toBe(false);
+  });
+});
+
+describe("allowed_email-Constraints", () => {
+  it("lehnt eine leere E-Mail-Adresse ab", async () => {
+    // Kein `.rejects`: siehe Kommentar bei pruefeZugang oben — hier fangen wir
+    // den Fehler selbst ein, statt ihn `expect().rejects` prüfen zu lassen.
+    let fehler: unknown;
+    try {
+      await umgebung.db.insert(allowedEmail).values({ id: "1", email: "" });
+    } catch (e) {
+      fehler = e;
+    }
+    expect(fehler).toBeDefined();
+  });
+
+  it("lehnt eine nicht kleingeschriebene E-Mail-Adresse ab", async () => {
+    let fehler: unknown;
+    try {
+      await umgebung.db.insert(allowedEmail).values({ id: "1", email: "Christopher@Example.AT" });
+    } catch (e) {
+      fehler = e;
+    }
+    expect(fehler).toBeDefined();
   });
 });
 
