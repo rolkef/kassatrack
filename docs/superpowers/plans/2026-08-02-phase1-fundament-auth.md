@@ -38,7 +38,7 @@ Diese gelten für **jede** Task, ohne dass sie dort wiederholt werden.
 | `src/db/schema/auth.ts` | Von Better-Auth-CLI generiertes Auth-Schema |
 | `src/db/schema/zugriff.ts` | `allowedEmail`, `invite` — Zugriffssteuerung |
 | `src/lib/zugriff.ts` | **Reine, testbare Allowlist-Logik.** Kennt Better Auth nicht. |
-| `src/lib/auth.ts` | Better-Auth-Serverinstanz, verdrahtet `zugriff.ts` als Hook |
+| `src/lib/auth.ts` | `erzeugeAuth(datenbank)` + App-Instanz, verdrahtet `zugriff.ts` als Hook |
 | `src/lib/auth-client.ts` | Better-Auth-Clientinstanz |
 | `src/lib/sitzung.ts` | `requireUser()` für Server Components |
 | `src/middleware.ts` | Sicherheits-Header + Routen-Schutz |
@@ -745,7 +745,8 @@ git commit -m "feat: Allowlist-Logik mit vollständiger Testabdeckung"
 **Interfaces:**
 - Consumes: `pruefeZugang`, `ZugriffVerweigert` aus `@/lib/zugriff` (Task 4); `db` aus `@/db` (Task 3); `env` (Task 2)
 - Produces:
-  - `auth` aus `@/lib/auth` — Better-Auth-Serverinstanz
+  - `erzeugeAuth(datenbank: ZugriffsDb)` aus `@/lib/auth` — baut eine Better-Auth-Instanz über der übergebenen Datenbank
+  - `auth` aus `@/lib/auth` — die Instanz der Anwendung, `erzeugeAuth(db)`
   - `authClient` aus `@/lib/auth-client` mit den Methoden `signIn.social`, `signIn.passkey`, `passkey.addPasskey`, `signOut`, `useSession`
   - Route `GET|POST /api/auth/*`
 
@@ -761,29 +762,17 @@ bun add better-auth@1.6.25 @better-auth/passkey@1.6.25 @better-auth/drizzle-adap
 
 `tests/auth-gate.test.ts`:
 
-**Reihenfolge ist hier entscheidend.** `src/lib/auth.ts` importiert `db` aus `@/db`, und `@/db` liest `env.DATABASE_URL` beim Modul-Import — also einmalig und unveränderlich. Ein `beforeAll` läuft zu spät. Deshalb wird der Container per Top-Level-`await` gestartet, `process.env.DATABASE_URL` gesetzt, und `auth` erst **danach** dynamisch importiert. Bun unterstützt Top-Level-`await` in Testdateien.
+**Warum eine Fabrik.** `@/db` bindet seine Verbindung beim ersten Import und behält sie für den gesamten Prozess. Würde `auth.ts` diese Verbindung fest verdrahten, hinge der Test davon ab, dass keine andere Testdatei `@/db` vorher angefasst hat — eine Abhängigkeit von der Dateireihenfolge, die irgendwann unbemerkt bricht. Deshalb nimmt `erzeugeAuth(datenbank)` die Datenbank als Parameter: die App reicht die echte hinein, der Test seine Wegwerf-Datenbank. Kein `process.env`-Jonglieren, kein dynamischer Import, keine Reihenfolgen-Annahme.
 
 ```ts
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { sql } from "drizzle-orm";
-import { starteTestDatenbank } from "./helfer/db";
+import { erzeugeAuth } from "@/lib/auth";
+import { allowedEmail } from "@/db/schema/zugriff";
+import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
 
-// Top-Level: läuft VOR jedem dynamischen Import weiter unten.
-const umgebung = await starteTestDatenbank();
-process.env.DATABASE_URL = umgebung.url;
-
-await umgebung.db.execute(sql`
-  create table allowed_email (
-    id text primary key,
-    email text not null unique,
-    hinzugefuegt_von text,
-    erstellt_am timestamptz not null default now()
-  )
-`);
-
-// Erst jetzt importieren — @/db liest DATABASE_URL beim Import.
-const { auth } = await import("@/lib/auth");
-const { allowedEmail } = await import("@/db/schema/zugriff");
+let umgebung: TestDatenbank;
+let auth: ReturnType<typeof erzeugeAuth>;
 
 /** Greift genau den Hook ab, den Better Auth vor jedem Nutzer-Insert ausführt. */
 function holeGate() {
@@ -791,6 +780,19 @@ function holeGate() {
   if (!hook) throw new Error("databaseHooks.user.create.before ist nicht verdrahtet");
   return hook;
 }
+
+beforeAll(async () => {
+  umgebung = await starteTestDatenbank();
+  await umgebung.db.execute(sql`
+    create table allowed_email (
+      id text primary key,
+      email text not null unique,
+      hinzugefuegt_von text,
+      erstellt_am timestamptz not null default now()
+    )
+  `);
+  auth = erzeugeAuth(umgebung.db);
+}, 120_000);
 
 afterAll(async () => {
   await umgebung.stop();
@@ -849,49 +851,59 @@ import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { passkey } from "@better-auth/passkey";
 import { db } from "@/db";
 import { env } from "@/lib/env";
-import { pruefeZugang, ZugriffVerweigert } from "@/lib/zugriff";
+import { pruefeZugang, ZugriffVerweigert, type ZugriffsDb } from "@/lib/zugriff";
 
 const rpID = new URL(env.BETTER_AUTH_URL).hostname;
 
-export const auth = betterAuth({
-  database: drizzleAdapter(db, { provider: "pg" }),
-  secret: env.BETTER_AUTH_SECRET,
-  baseURL: env.BETTER_AUTH_URL,
+/**
+ * Baut eine Better-Auth-Instanz über der übergebenen Datenbank.
+ * Die Datenbank ist ein Parameter, damit Tests ihre eigene Wegwerf-Datenbank
+ * hineinreichen können, ohne von der Import-Reihenfolge abzuhängen.
+ */
+export function erzeugeAuth(datenbank: ZugriffsDb) {
+  return betterAuth({
+    database: drizzleAdapter(datenbank, { provider: "pg" }),
+    secret: env.BETTER_AUTH_SECRET,
+    baseURL: env.BETTER_AUTH_URL,
 
-  // Bewusst aus: kein Passwort-Pfad, damit es kein schwächstes Glied gibt.
-  emailAndPassword: { enabled: false },
+    // Bewusst aus: kein Passwort-Pfad, damit es kein schwächstes Glied gibt.
+    emailAndPassword: { enabled: false },
 
-  socialProviders: {
-    google: {
-      clientId: env.GOOGLE_CLIENT_ID,
-      clientSecret: env.GOOGLE_CLIENT_SECRET,
+    socialProviders: {
+      google: {
+        clientId: env.GOOGLE_CLIENT_ID,
+        clientSecret: env.GOOGLE_CLIENT_SECRET,
+      },
     },
-  },
 
-  databaseHooks: {
-    user: {
-      create: {
-        // Einziger Punkt, durch den JEDER Registrierungspfad muss —
-        // Google, Passkey, alles. Kein Weg daran vorbei.
-        before: async (user) => {
-          try {
-            await pruefeZugang(db, user.email);
-          } catch (fehler) {
-            if (fehler instanceof ZugriffVerweigert) {
-              throw new APIError("FORBIDDEN", { message: fehler.message });
+    databaseHooks: {
+      user: {
+        create: {
+          // Einziger Punkt, durch den JEDER Registrierungspfad muss —
+          // Google, Passkey, alles. Kein Weg daran vorbei.
+          before: async (user) => {
+            try {
+              await pruefeZugang(datenbank, user.email);
+            } catch (fehler) {
+              if (fehler instanceof ZugriffVerweigert) {
+                throw new APIError("FORBIDDEN", { message: fehler.message });
+              }
+              throw fehler;
             }
-            throw fehler;
-          }
+          },
         },
       },
     },
-  },
 
-  plugins: [
-    passkey({ rpID, rpName: "KassaTrack" }),
-    nextCookies(), // muss letzter Eintrag bleiben
-  ],
-});
+    plugins: [
+      passkey({ rpID, rpName: "KassaTrack" }),
+      nextCookies(), // muss letzter Eintrag bleiben
+    ],
+  });
+}
+
+/** Die Instanz, die die Anwendung benutzt. */
+export const auth = erzeugeAuth(db);
 ```
 
 - [ ] **Step 5: Auth-Schema generieren und Migration anlegen**
@@ -2020,4 +2032,4 @@ ENDE
 
 **Offene Abhängigkeit.** Die exakte Signatur von `databaseHooks.user.create.before` in Better Auth 1.6.25 ist aus der Dokumentation als `(user, ctx) => Promise<void>` belegt. Der Test in Task 5 ruft den Hook direkt auf und würde bei einer abweichenden Signatur sofort fehlschlagen — das ist gewollt und die Absicherung gegen eine falsche Annahme.
 
-**Bekannte Reibungsstelle.** `src/lib/auth.ts` importiert `db` als Modul-Singleton, dessen Verbindung beim Import feststeht. `tests/auth-gate.test.ts` löst das über Top-Level-`await` plus dynamischen Import (Task 5, Step 2) — korrekt, aber subtil. Sollte sich das im weiteren Verlauf als sperrig erweisen, ist der saubere Umbau eine Factory `erzeugeAuth(db)`; für Phase 1 wäre das vorgezogener Aufwand ohne aktuellen Nutzen.
+**Behobene Reibungsstelle.** `@/db` bindet seine Verbindung beim ersten Import und behält sie für den ganzen Prozess. Eine frühere Fassung dieses Plans löste das in Task 5 über Top-Level-`await` plus dynamischen Import — das funktionierte nur, solange keine andere Testdatei `@/db` vorher berührte, also aus Glück statt aus Konstruktion. Das Review von Task 3 hat die Fragilität benannt, der Nutzer hat den Umbau entschieden: `erzeugeAuth(datenbank)` nimmt die Datenbank als Parameter. Task 5 ist dadurch kürzer und hängt an keiner Dateireihenfolge mehr.
