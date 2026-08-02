@@ -1127,6 +1127,22 @@ describe("Sicherheits-Header", () => {
   it("setzt die Header auch auf der Anmeldeseite", () => {
     expect(proxy(anfrage("/anmelden")).headers.get("x-frame-options")).toBe("DENY");
   });
+
+  it("erlaubt keine beliebigen Inline-Skripte", () => {
+    const kopf = proxy(anfrage("/")).headers.get("content-security-policy");
+    expect(kopf).not.toContain("'unsafe-inline'");
+  });
+
+  // Beweist, dass das Token pro Antwort neu erzeugt wird. Ein konstantes Token
+  // wäre wertlos — ein Angreifer könnte es einfach mitschreiben und verwenden.
+  it("vergibt pro Antwort ein frisches Einmal-Token", () => {
+    const erste = proxy(anfrage("/")).headers.get("content-security-policy");
+    const zweite = proxy(anfrage("/")).headers.get("content-security-policy");
+
+    expect(erste).toMatch(/'nonce-[A-Za-z0-9+/=]+'/);
+    expect(erste).not.toBe(zweite);
+  });
+
 });
 ```
 
@@ -1139,25 +1155,42 @@ Expected: FAIL — `Cannot find module '@/proxy'`
 
 `src/proxy.ts`:
 
+**Einmal-Token statt `'unsafe-inline'`.** Eine Richtlinie mit `'unsafe-inline'` erlaubt jedes Inline-Skript und hebt damit genau den Schutz auf, für den sie da ist. Stattdessen erzeugt jede Antwort ein Zufallstoken; nur Skripte, die es tragen, laufen. Next.js versieht seine eigenen Hydration-Skripte automatisch damit, sobald es den `content-security-policy`-Header auf der **Anfrage** sieht — deshalb wird er dort ebenfalls gesetzt, nicht nur auf der Antwort.
+
+Preis: Alle Seiten werden dynamisch gerendert, statische Optimierung und Partial Prerendering entfallen. Für KassaTrack ist das folgenlos, weil jede Seite hinter der Anmeldung liegt und `requireUser()` ohnehin Header liest — sie wären so oder so dynamisch.
+
 ```ts
 import { NextResponse, type NextRequest } from "next/server";
 
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "connect-src 'self'",
-  "font-src 'self'",
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-].join("; ");
+export function proxy(request: NextRequest): NextResponse {
+  const token = Buffer.from(crypto.randomUUID()).toString("base64");
+  const entwicklung = process.env.NODE_ENV === "development";
 
-export function proxy(_request: NextRequest): NextResponse {
-  const antwort = NextResponse.next();
+  const csp = `
+    default-src 'self';
+    script-src 'self' 'nonce-${token}' 'strict-dynamic'${entwicklung ? " 'unsafe-eval'" : ""};
+    style-src 'self' 'nonce-${token}';
+    img-src 'self' blob: data:;
+    font-src 'self';
+    connect-src 'self';
+    object-src 'none';
+    base-uri 'self';
+    form-action 'self';
+    frame-ancestors 'none';
+    upgrade-insecure-requests;
+  `
+    .replace(/\s{2,}/g, " ")
+    .trim();
 
-  antwort.headers.set("content-security-policy", CSP);
+  // Auch auf der ANFRAGE setzen: daran erkennt Next, dass es seine eigenen
+  // Skripte mit dem Token versehen soll.
+  const anfrageKopf = new Headers(request.headers);
+  anfrageKopf.set("x-nonce", token);
+  anfrageKopf.set("content-security-policy", csp);
+
+  const antwort = NextResponse.next({ request: { headers: anfrageKopf } });
+
+  antwort.headers.set("content-security-policy", csp);
   antwort.headers.set("strict-transport-security", "max-age=63072000; includeSubDomains; preload");
   antwort.headers.set("x-frame-options", "DENY");
   antwort.headers.set("x-content-type-options", "nosniff");
@@ -1225,7 +1258,7 @@ export default async function StartSeite() {
 - [ ] **Step 4: Test laufen lassen und Erfolg bestätigen**
 
 Run: `bun test tests/proxy.test.ts`
-Expected: PASS, 5 pass 0 fail
+Expected: PASS, 7 pass 0 fail
 
 - [ ] **Step 5: Commit**
 
@@ -2106,6 +2139,24 @@ Expected: `next@16.2.12`, `react@19.2.8`, `typescript@7.0.2`, `tailwindcss@4.3.3
 
 Run: `ls tailwind.config.* 2>/dev/null; echo "exit=$?"`
 Expected: keine Datei gefunden
+
+- [ ] **Step 4b: Sicherheits-Header am laufenden Container pruefen**
+
+Die Unit-Tests rufen `proxy()` direkt auf und wuerden auch dann gruen bleiben, wenn der `config.matcher` gar nichts mehr erfasst. Sie belegen, dass die richtigen Header ERZEUGT werden -- nicht, dass sie ankommen. Das wird hier einmal gegen den echten Container geprueft.
+
+```bash
+docker run --rm -d -p 3001:3000 --name kassatrack-headercheck \
+  -e DATABASE_URL="postgres://kassatrack:kassatrack@host.docker.internal:5432/kassatrack" \
+  -e BETTER_AUTH_SECRET="197609bunx @better-auth/cli secret)" \
+  -e BETTER_AUTH_URL="http://localhost:3001" \
+  -e GOOGLE_CLIENT_ID="test" -e GOOGLE_CLIENT_SECRET="test" \
+  kassatrack:test
+
+curl -sI http://localhost:3001/anmelden | grep -iE "content-security-policy|strict-transport|x-frame-options|x-content-type-options|referrer-policy"
+docker rm -f kassatrack-headercheck
+```
+
+Expected: alle sechs Header sind vorhanden, die Richtlinie enthaelt `nonce-` und **kein** `unsafe-inline`. Zwei Aufrufe hintereinander muessen unterschiedliche Token liefern.
 
 - [ ] **Step 5: Prüfen, dass keine Secrets im Repo liegen**
 
