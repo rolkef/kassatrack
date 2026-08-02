@@ -1078,7 +1078,7 @@ git commit -m "feat: Better Auth mit Passkey, Google und Allowlist-Gate im Daten
 > **Achtung, Next-16-Änderung.** `middleware.ts` heißt seit Next 16 `proxy.ts`, und die exportierte Funktion heißt `proxy` statt `middleware`. Beide Namen werden noch erkannt, aber Next warnt bei der alten Variante und verweist auf `nextjs.org/docs/messages/middleware-to-proxy`. Liegen beide Dateien vor, bricht der Build ab. Verwende ausschließlich `src/proxy.ts` mit `export function proxy(...)`. Der `config.matcher`-Export bleibt unverändert.
 
 **Files:**
-- Create: `src/lib/sitzung.ts`, `src/proxy.ts`
+- Create: `src/lib/sitzung.ts`, `src/proxy.ts`, `src/app/not-found.tsx`
 - Modify: `src/app/page.tsx`
 - Test: `tests/proxy.test.ts`
 
@@ -2157,6 +2157,8 @@ docker rm -f kassatrack-headercheck
 ```
 
 Expected: alle sechs Header sind vorhanden, die Richtlinie enthaelt `nonce-` und **kein** `unsafe-inline`. Zwei Aufrufe hintereinander muessen unterschiedliche Token liefern.
+
+Zusaetzlich im Browser, mit **angemeldeter Sitzung**: Startseite und Anmeldeseite oeffnen und die Konsole auf CSP-Verstoesse pruefen. In Task 6 konnte nur die 404-Seite end-to-end verifiziert werden, weil dort noch keine Anmeldung moeglich war; die Startseite blieb Schlussfolgerung aus der Build-Ausgabe. Eine statisch vorgerenderte Route kann kein Token pro Anfrage tragen und bricht dann still — die Seite laedt, reagiert aber nicht. Pruefe in der Build-Ausgabe, dass **keine** Route mehr mit `○` (statisch) markiert ist.
 
 - [ ] **Step 5: Prüfen, dass keine Secrets im Repo liegen**
 
