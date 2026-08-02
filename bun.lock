@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "kassatrack-tmp",
+      "name": "kassatrack",
       "dependencies": {
         "next": "16.2.12",
         "react": "19.2.8",
