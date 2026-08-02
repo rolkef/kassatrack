@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+@theme {
+  --color-hintergrund: oklch(0.99 0 0);
+  --color-vordergrund: oklch(0.15 0 0);
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-zahlen: ui-monospace, "SF Mono", monospace;
+}
