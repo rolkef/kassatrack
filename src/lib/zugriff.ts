@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { user } from "@/db/schema/auth";
 import { allowedEmail } from "@/db/schema/zugriff";
@@ -30,6 +30,18 @@ export class ZugriffVerweigert extends Error {
   }
 }
 
+/**
+ * Wird geworfen, wenn jemand die Zugriffsverwaltung benutzen will, ohne die
+ * Betreiber-Rolle zu haben. Angemeldet ja, berechtigt nein — das ist kein
+ * Fehlverhalten, und die Oberfläche sagt das entsprechend.
+ */
+export class NichtBetreiber extends Error {
+  constructor() {
+    super("Diese Seite ist der betreibenden Person vorbehalten.");
+    this.name = "NichtBetreiber";
+  }
+}
+
 export function normalisiereEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -45,6 +57,48 @@ export async function istEmailZugelassen(db: ZugriffsDb, email: string): Promise
     .limit(1);
 
   return treffer.length > 0;
+}
+
+/** Ob diese Adresse einladen und Zugänge entziehen darf. */
+export async function istBetreiber(db: ZugriffsDb, email: string): Promise<boolean> {
+  const normalisiert = normalisiereEmail(email);
+  if (normalisiert === "") return false;
+
+  const treffer = await db
+    .select({ id: allowedEmail.id })
+    .from(allowedEmail)
+    .where(and(eq(allowedEmail.email, normalisiert), eq(allowedEmail.istBetreiber, true)))
+    .limit(1);
+
+  return treffer.length > 0;
+}
+
+/**
+ * Ob es überhaupt eine betreibende Person gibt.
+ *
+ * Die erste Zeile mit `ist_betreiber = true` wird beim Aufsetzen von Hand
+ * gesetzt (siehe Task 10). Wird das vergessen, kann niemand verwalten — und
+ * dann soll die Seite das erklären, statt so zu tun, als sei die anfragende
+ * Person das Problem.
+ */
+export async function gibtEsBetreiber(db: ZugriffsDb): Promise<boolean> {
+  const treffer = await db
+    .select({ id: allowedEmail.id })
+    .from(allowedEmail)
+    .where(eq(allowedEmail.istBetreiber, true))
+    .limit(1);
+
+  return treffer.length > 0;
+}
+
+/**
+ * Wirft `NichtBetreiber`, wenn diese Adresse nicht verwalten darf.
+ *
+ * Fehlschlagen in Richtung „zu": Gibt es gar keine betreibende Person, darf das
+ * die Verwaltung nicht für alle öffnen. Ohne Eintrag kommt niemand durch.
+ */
+export async function pruefeBetreiber(db: ZugriffsDb, email: string): Promise<void> {
+  if (!(await istBetreiber(db, email))) throw new NichtBetreiber();
 }
 
 export async function pruefeZugang(db: ZugriffsDb, email: string | undefined | null): Promise<void> {
@@ -64,13 +118,25 @@ export async function pruefeZugang(db: ZugriffsDb, email: string | undefined | n
  * Sitzungs-Hook, der bei **jeder** Anmeldung läuft.
  *
  * Der Sitzungs-Hook bekommt nur die Sitzungsdaten (`userId`, `token`, …) und
- * keine Adresse; sie wird hier nachgeschlagen. `user.email` trägt dabei die
- * Schreibweise des Anbieters und wird von Better Auth nirgends normalisiert —
- * `istEmailZugelassen` normalisiert sie, sonst sperrte eine Großschreibung im
- * Konto eine freigeschaltete Person aus.
+ * keine Adresse; sie wird hier nachgeschlagen. Die Normalisierung in
+ * `istEmailZugelassen` ist dabei Absicherung, nicht Notwendigkeit: Better Auth
+ * schreibt `user.email` beim Anlegen und Ändern selbst klein
+ * (`db/internal-adapter.mjs`, `oauth2/link-account.mjs`). Eine gemischte
+ * Schreibweise kann nur aus einer direkt eingefügten Zeile stammen — und die
+ * dürfte nicht dazu führen, dass eine freigeschaltete Person ausgesperrt wird.
  *
  * Gibt es zu der Kennung keinen Nutzer, wird abgewiesen statt durchgelassen:
  * Im Zweifel ist die Tür zu.
+ *
+ * **Kopplung an die Adapter-Einstellungen.** Gelesen wird über das äußere
+ * `db`-Handle, nicht über den gerade laufenden Adapter von Better Auth. Das
+ * geht gut, weil der Drizzle-Adapter `transaction: false` voreingestellt hat:
+ * Die Nutzerzeile ist festgeschrieben, bevor `createSession` läuft, und diese
+ * Abfrage sieht sie. Würde jemand `transaction: true` setzen, liefe das Anlegen
+ * von Nutzer und Sitzung in einer offenen Transaktion — die Zeile wäre von hier
+ * aus unsichtbar, und **jede Erstanmeldung** bekäme keine Sitzung. Das
+ * scheiterte zwar in Richtung „zu", wäre aber ein vollständiger Ausfall der
+ * Registrierung. Wer die Adapter-Einstellungen ändert, muss hier mitlesen.
  */
 export async function pruefeZugangFuerNutzer(db: ZugriffsDb, userId: string): Promise<string> {
   if (!userId) throw new ZugriffVerweigert(null);

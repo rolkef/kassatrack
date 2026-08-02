@@ -7,18 +7,23 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import type { EntzugsZustand } from "@/app/verwaltung/zugriff/zustand";
 
-// Die Signatur ist ausgeschrieben, damit `mock.calls[…][1]` als FormData
-// typisiert ist und `mockImplementationOnce` auch einen Fehler liefern darf.
+/*
+ * Die Aktion wird als Eigenschaft übergeben, nicht per `mock.module` ersetzt.
+ *
+ * `mock.module` gilt in Bun für den **gesamten** Lauf, nicht nur für diese
+ * Datei. Ein globaler Ersatz des Aktionsmoduls hat deshalb
+ * `tests/verwaltung-aktionen.test.ts` die echten Aktionen weggenommen — dort
+ * schlugen sechs Tests fehl, sobald beide Dateien zusammen liefen, und beide
+ * für sich waren grün. Hereinreichen löst das an der Wurzel.
+ *
+ * Die Signatur ist ausgeschrieben, damit `mock.calls[…][1]` als FormData
+ * typisiert ist und `mockImplementationOnce` auch einen Fehler liefern darf.
+ */
 const entziehe = mock(
   async (_vorher: EntzugsZustand, _formular: FormData): Promise<EntzugsZustand> => ({
     fehler: null,
   }),
 );
-
-mock.module("@/app/verwaltung/zugriff/aktionen", () => ({
-  entziehe,
-  ladeEin: mock(async () => ({ art: "leer" })),
-}));
 
 const { ZugangsZeile } = await import("@/app/verwaltung/zugriff/zugangs-zeile");
 
@@ -34,6 +39,9 @@ function zeichne(eigenschaften: Partial<Parameters<typeof ZugangsZeile>[0]> = {}
         email="neu@example.at"
         seit="12.03.2026"
         hatKonto={false}
+        istBetreiber={false}
+        istManSelbst={false}
+        aktion={entziehe}
         {...eigenschaften}
       />
     </ul>,
@@ -175,8 +183,34 @@ describe("ZugangsZeile", () => {
     expect(entziehe).not.toHaveBeenCalled();
   });
 
+  /*
+   * Die eigene Zeile darf den Knopf nicht anbieten: Ein Selbstentzug beendet
+   * die eigenen Sitzungen und streicht die eigene Freischaltung — zurück ginge
+   * es nur von Hand in der Datenbank. Serverseitig ist der Fall zusätzlich in
+   * `entziehe` abgefangen (siehe tests/verwaltung-aktionen.test.ts).
+   */
+  it("bietet für die eigene Zeile kein Entziehen an", () => {
+    zeichne({ istManSelbst: true });
+
+    expect(screen.queryByRole("button", { name: /Zugang entziehen/i })).toBeNull();
+    expect(document.body.textContent).toContain("Das bist du");
+  });
+
+  it("kennzeichnet die betreibende Person", () => {
+    zeichne({ istBetreiber: true });
+    expect(document.body.textContent).toContain("Betreiber");
+  });
+
+  it("bietet für eine andere betreibende Person weiterhin ein Entziehen an", () => {
+    // Nur der Selbstentzug ist gesperrt, nicht das Entziehen an sich.
+    zeichne({ istBetreiber: true, istManSelbst: false });
+    expect(screen.getByRole("button", { name: /Zugang entziehen für/i })).toBeDefined();
+  });
+
   it("meldet einen fehlgeschlagenen Entzug, statt ihn zu verschlucken", async () => {
-    entziehe.mockImplementationOnce(async () => ({ fehler: "Der Zugang konnte nicht entzogen werden." }));
+    entziehe.mockImplementationOnce(async () => ({
+      fehler: "Der Zugang konnte nicht entzogen werden.",
+    }));
 
     zeichne();
     await userEvent.click(screen.getByRole("button", { name: /Zugang entziehen für/i }));

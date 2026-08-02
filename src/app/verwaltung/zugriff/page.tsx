@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { db } from "@/db";
 import { AUFBEWAHRUNG_TAGE, benenneWeg, holeAbweisungen } from "@/lib/abweisung";
 import { holeZugaenge } from "@/lib/einladung";
-import { requireUser } from "@/lib/sitzung";
+import { holeBerechtigung } from "@/lib/sitzung";
+import { gibtEsBetreiber, normalisiereEmail } from "@/lib/zugriff";
+import { entziehe, ladeEin } from "./aktionen";
 import { EinladungsFormular } from "./einladungs-formular";
 import { ZugangsZeile } from "./zugangs-zeile";
 import { formatiereDatum, formatiereZeitpunkt } from "./zustand";
@@ -30,12 +32,21 @@ export const dynamic = "force-dynamic";
  * man aktiv), dann sehen, wer darf, dann nachsehen, wer nicht durchkam.
  */
 export default async function ZugriffSeite() {
-  await requireUser();
+  const { benutzer, darfVerwalten } = await holeBerechtigung();
 
-  const [zugaenge, abweisungen] = await Promise.all([
-    holeZugaenge(db),
-    holeAbweisungen(db),
-  ]);
+  /*
+   * Kein `redirect` und keine Fehlerseite: Wer angemeldet, aber nicht
+   * berechtigt ist, hat nichts falsch gemacht und bekommt einen Satz in
+   * ganzem Deutsch. Die Seite prüft trotzdem nur für die Anzeige — die
+   * eigentliche Sperre sitzt in den Server-Aktionen, weil die auch ohne diese
+   * Seite aufrufbar sind.
+   */
+  if (!darfVerwalten) {
+    return <Unberechtigt esGibtBetreiber={await gibtEsBetreiber(db)} />;
+  }
+
+  const [zugaenge, abweisungen] = await Promise.all([holeZugaenge(db), holeAbweisungen(db)]);
+  const eigeneAdresse = normalisiereEmail(benutzer.email);
 
   return (
     <main
@@ -56,7 +67,7 @@ export default async function ZugriffSeite() {
       </header>
 
       <Abschnitt titel="Einladen">
-        <EinladungsFormular />
+        <EinladungsFormular aktion={ladeEin} />
       </Abschnitt>
 
       <Abschnitt titel="Freigeschaltet" anzahl={zugaenge.length}>
@@ -73,6 +84,9 @@ export default async function ZugriffSeite() {
                 email={zugang.email}
                 seit={formatiereDatum(zugang.erstelltAm)}
                 hatKonto={zugang.hatKonto}
+                istBetreiber={zugang.istBetreiber}
+                istManSelbst={zugang.email === eigeneAdresse}
+                aktion={entziehe}
               />
             ))}
           </ul>
@@ -121,6 +135,61 @@ export default async function ZugriffSeite() {
           {AUFBEWAHRUNG_TAGE} Tagen automatisch gelöscht.
         </p>
       </Abschnitt>
+    </main>
+  );
+}
+
+/**
+ * Zwei Lagen, in denen diese Seite nichts zu zeigen hat — und beide brauchen
+ * eine andere Auskunft.
+ *
+ * Ist eine betreibende Person eingetragen, aber jemand anderes ruft die Seite
+ * auf, ist der Rat „wende dich an sie" richtig. Ist **gar niemand** eingetragen
+ * (eine Installation, bei der das Flag beim Aufsetzen vergessen wurde), wäre
+ * derselbe Satz eine Sackgasse: Es gibt niemanden, an den man sich wenden
+ * könnte. Dann muss dastehen, wo das in Ordnung gebracht wird.
+ *
+ * Ton wie überall bei Abweisungen: Sand, nicht Rot. Wer hier landet, hat nichts
+ * falsch gemacht.
+ */
+function Unberechtigt({ esGibtBetreiber }: { esGibtBetreiber: boolean }) {
+  return (
+    <main
+      className={
+        "mx-auto flex min-h-dvh w-full max-w-[30rem] flex-1 flex-col justify-center gap-5 " +
+        "px-6 pt-[max(2.5rem,env(safe-area-inset-top))] pb-[max(4.5rem,env(safe-area-inset-bottom))] sm:px-8"
+      }
+    >
+      <header data-auftritt className="flex animate-auftritt flex-col gap-3">
+        <h1 className="font-anzeige text-[clamp(1.75rem,7vw,2.25rem)] leading-tight font-semibold tracking-[-0.03em]">
+          Zugriff verwalten
+        </h1>
+      </header>
+
+      <div
+        data-auftritt
+        className="animate-auftritt rounded-block bg-hinweis px-4 py-3.5 text-base leading-relaxed text-auf-hinweis [animation-delay:80ms]"
+      >
+        {esGibtBetreiber ? (
+          <p>
+            Diese Seite gehört der Person, die KassaTrack betreibt. Wenn jemand freigeschaltet oder
+            gesperrt werden soll, wende dich an sie.
+          </p>
+        ) : (
+          <p>
+            Für diese Installation ist noch keine betreibende Person eingetragen, deshalb kann
+            niemand Zugänge verwalten. Das wird beim Aufsetzen gesetzt — in der Datenbank, in der
+            Spalte <code className="font-mono text-sm">ist_betreiber</code> der Tabelle{" "}
+            <code className="font-mono text-sm">allowed_email</code>.
+          </p>
+        )}
+      </div>
+
+      <p data-auftritt className="animate-auftritt text-base [animation-delay:140ms]">
+        <a href="/" className="text-marke underline underline-offset-4">
+          Zurück zur Übersicht
+        </a>
+      </p>
     </main>
   );
 }

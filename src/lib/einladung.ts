@@ -87,9 +87,10 @@ export async function loeseEinladungEin(
  * In der umgekehrten Reihenfolge wäre eine Teilausführung schlechter: abgemeldet,
  * aber weiterhin berechtigt, sich sofort neu anzumelden.
  *
- * `lower(user.email)`, weil `user.email` die Schreibweise des Anbieters trägt
- * und von Better Auth nirgends normalisiert wird — ein direkter Vergleich
- * ließe die Sitzungen von `Neu@Example.at` stehen.
+ * `lower(user.email)` aus demselben Grund wie in `holeZugaenge`: Better Auth
+ * schreibt Adressen selbst klein, direkt eingefügte Zeilen laufen daran aber
+ * vorbei. Ohne die Absicherung blieben deren Sitzungen hier stehen — und das
+ * wäre eine Aussperrung, die nur halb stattfindet.
  */
 export async function entzieheZugang(db: ZugriffsDb, email: string): Promise<void> {
   const normalisiert = normalisiereEmail(email);
@@ -116,17 +117,22 @@ export type Zugang = {
   email: string;
   erstelltAm: Date;
   /**
-   * Ob zu dieser Adresse bereits ein Konto besteht — die wichtigste Angabe der
-   * ganzen Seite, weil sie bestimmt, was „Zugang entziehen" tatsächlich
-   * bewirkt.
+   * Ob zu dieser Adresse bereits ein Konto besteht.
    *
-   * Die Allowlist wird **nur** in `databaseHooks.user.create.before` geprüft,
-   * also genau einmal: beim Anlegen des Kontos. Wer schon ein Konto hat, kommt
-   * danach ohne erneute Prüfung herein. Das Entziehen streicht deshalb nur die
-   * Einladung; ein bestehendes Konto bleibt bestehen. Die Oberfläche sagt das
-   * so, statt eine Aussperrung zu versprechen, die nicht stattfindet.
+   * **Nur noch eine Auskunft.** Früher entschied dieses Feld, was „Zugang
+   * entziehen" bewirkt: Die Allowlist wurde allein beim Anlegen des Kontos
+   * geprüft, ein bestehendes Konto überlebte den Entzug also. Das gilt nicht
+   * mehr — `databaseHooks.session.create.before` prüft bei jeder Anmeldung, und
+   * `entzieheZugang` beendet zusätzlich die laufenden Sitzungen. Ein Entzug
+   * sperrt damit jede Adresse aus, mit Konto wie ohne.
+   *
+   * Geblieben ist der Unterschied, was *zusätzlich* passiert: Nur wo ein Konto
+   * besteht, gibt es eine laufende Anmeldung zu beenden. Genau das — und nichts
+   * weiter — sagt die Oberfläche noch dazu.
    */
   hatKonto: boolean;
+  /** Darf einladen und Zugänge entziehen. */
+  istBetreiber: boolean;
 };
 
 /**
@@ -139,17 +145,30 @@ export async function holeZugaenge(db: ZugriffsDb): Promise<Zugang[]> {
       id: allowedEmail.id,
       email: allowedEmail.email,
       erstelltAm: allowedEmail.erstelltAm,
+      istBetreiber: allowedEmail.istBetreiber,
       konto: user.id,
     })
     .from(allowedEmail)
     // `leftJoin`, nicht `innerJoin`: Die überwiegende Mehrheit der Einträge hat
     // noch kein Konto, und genau die sollen sichtbar bleiben.
     //
-    // `lower(user.email)`: `allowed_email.email` ist per Constraint
-    // kleingeschrieben, `user.email` trägt dagegen die Schreibweise des
-    // Anbieters und wird von Better Auth nirgends normalisiert. Postgres
-    // vergleicht `text` unterscheidend nach Groß- und Kleinschreibung — ohne
-    // `lower()` fände ein Konto mit `Neu@Example.at` seine Zeile nicht.
+    /*
+     * `lower(user.email)` als Absicherung, nicht als Notwendigkeit.
+     *
+     * Better Auth schreibt Adressen beim Anlegen und Ändern selbst klein
+     * (`db/internal-adapter.mjs`: `email: user.email?.toLowerCase()` in
+     * `createUser` und `createOAuthUser`; `oauth2/link-account.mjs` ebenso beim
+     * Aktualisieren). Über den normalen Anmeldeweg kann hier also gar keine
+     * gemischte Schreibweise ankommen.
+     *
+     * Direkt eingefügte Zeilen — Einspielskripte, Migrationen, ein Eingriff von
+     * Hand in der Datenbank — laufen an dieser Normalisierung vorbei. Und
+     * Postgres vergleicht `text` unterscheidend, `allowed_email.email` ist per
+     * Constraint kleingeschrieben: Ohne `lower()` fände eine so entstandene
+     * Zeile ihr Konto nicht und die Seite meldete „Noch nicht angemeldet" für
+     * jemanden, der längst ein Konto hat. Ein Zeichen Aufwand für einen Fall,
+     * der sonst still danebengeht.
+     */
     .leftJoin(user, eq(sql`lower(${user.email})`, allowedEmail.email))
     .orderBy(asc(allowedEmail.erstelltAm));
 

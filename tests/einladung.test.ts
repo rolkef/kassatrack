@@ -24,6 +24,7 @@ beforeAll(async () => {
       email text not null unique,
       hinzugefuegt_von text,
       erstellt_am timestamptz not null default now(),
+      ist_betreiber boolean not null default false,
       constraint allowed_email_nicht_leer check (email <> ''),
       constraint allowed_email_klein check (email = lower(email))
     );

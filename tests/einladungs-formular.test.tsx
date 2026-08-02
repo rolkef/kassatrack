@@ -14,16 +14,17 @@ const FERTIG: EinladungsZustand = {
   gueltigBis: "26.03.2026",
 };
 
-// Die Signatur ist ausgeschrieben, damit `mock.calls[…][1]` als FormData
-// typisiert ist — sonst hält TypeScript die Aufrufliste für leer.
+/*
+ * Wie bei `ZugangsZeile`: Die Aktion wird hereingereicht, nicht per
+ * `mock.module` global ersetzt — der Ersatz galt sonst für den ganzen Lauf und
+ * nahm `tests/verwaltung-aktionen.test.ts` die echten Aktionen weg.
+ *
+ * Die Signatur ist ausgeschrieben, damit `mock.calls[…][1]` als FormData
+ * typisiert ist — sonst hält TypeScript die Aufrufliste für leer.
+ */
 const ladeEin = mock(
   async (_vorher: EinladungsZustand, _formular: FormData): Promise<EinladungsZustand> => FERTIG,
 );
-
-mock.module("@/app/verwaltung/zugriff/aktionen", () => ({
-  ladeEin,
-  entziehe: mock(async () => ({ fehler: null })),
-}));
 
 const { EinladungsFormular } = await import("@/app/verwaltung/zugriff/einladungs-formular");
 
@@ -42,17 +43,17 @@ afterEach(() => {
 
 describe("EinladungsFormular", () => {
   it("hat ein sichtbares Etikett am Eingabefeld, nicht nur einen Platzhalter", () => {
-    render(<EinladungsFormular />);
+    render(<EinladungsFormular aktion={ladeEin} />);
     expect(screen.getByLabelText(/E-Mail-Adresse/i)).toBeDefined();
   });
 
   it("benennt die Schaltfläche nach dem, was sie tut", () => {
-    render(<EinladungsFormular />);
+    render(<EinladungsFormular aktion={ladeEin} />);
     expect(screen.getByRole("button", { name: /Einladung erstellen/i })).toBeDefined();
   });
 
   it("schickt die eingetragene Adresse an die Aktion", async () => {
-    render(<EinladungsFormular />);
+    render(<EinladungsFormular aktion={ladeEin} />);
     await userEvent.type(screen.getByLabelText(/E-Mail-Adresse/i), "neu@example.at");
     await userEvent.click(screen.getByRole("button", { name: /Einladung erstellen/i }));
 
@@ -61,7 +62,7 @@ describe("EinladungsFormular", () => {
   });
 
   it("zeigt den erzeugten Link im Klartext an", async () => {
-    render(<EinladungsFormular />);
+    render(<EinladungsFormular aktion={ladeEin} />);
     await userEvent.type(screen.getByLabelText(/E-Mail-Adresse/i), "neu@example.at");
     await userEvent.click(screen.getByRole("button", { name: /Einladung erstellen/i }));
 
@@ -81,7 +82,7 @@ describe("EinladungsFormular", () => {
       geschrieben.push(text);
     });
 
-    render(<EinladungsFormular />);
+    render(<EinladungsFormular aktion={ladeEin} />);
     await userEvent.type(screen.getByLabelText(/E-Mail-Adresse/i), "neu@example.at");
     await userEvent.click(screen.getByRole("button", { name: /Einladung erstellen/i }));
 
@@ -96,7 +97,7 @@ describe("EinladungsFormular", () => {
       throw new Error("verboten");
     });
 
-    render(<EinladungsFormular />);
+    render(<EinladungsFormular aktion={ladeEin} />);
     await userEvent.type(screen.getByLabelText(/E-Mail-Adresse/i), "neu@example.at");
     await userEvent.click(screen.getByRole("button", { name: /Einladung erstellen/i }));
     await userEvent.click(await screen.findByRole("button", { name: /Link kopieren/i }));
@@ -116,7 +117,7 @@ describe("EinladungsFormular", () => {
    * Formular aufrufbar.
    */
   it("schickt eine offensichtlich falsche Eingabe gar nicht erst ab", async () => {
-    render(<EinladungsFormular />);
+    render(<EinladungsFormular aktion={ladeEin} />);
     await userEvent.type(screen.getByLabelText(/E-Mail-Adresse/i), "kaputt");
     await userEvent.click(screen.getByRole("button", { name: /Einladung erstellen/i }));
 
@@ -129,7 +130,7 @@ describe("EinladungsFormular", () => {
       text: "Die Einladung konnte nicht angelegt werden. Versuch es noch einmal.",
     }));
 
-    render(<EinladungsFormular />);
+    render(<EinladungsFormular aktion={ladeEin} />);
     await userEvent.type(screen.getByLabelText(/E-Mail-Adresse/i), "neu@example.at");
     await userEvent.click(screen.getByRole("button", { name: /Einladung erstellen/i }));
 
@@ -146,7 +147,7 @@ describe("EinladungsFormular", () => {
   it("zeigt bei einem Fehler keinen Link an", async () => {
     ladeEin.mockImplementationOnce(async () => ({ art: "fehler", text: "Kaputt." }));
 
-    render(<EinladungsFormular />);
+    render(<EinladungsFormular aktion={ladeEin} />);
     await userEvent.type(screen.getByLabelText(/E-Mail-Adresse/i), "neu@example.at");
     await userEvent.click(screen.getByRole("button", { name: /Einladung erstellen/i }));
 

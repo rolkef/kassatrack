@@ -15,6 +15,13 @@
       "when": 1785684193166,
       "tag": "0001_low_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785689255627,
+      "tag": "0002_careless_chameleon",
+      "breakpoints": true
     }
   ]
 }

@@ -20,6 +20,21 @@ export type EntzugsZustand = { fehler: string | null };
 
 export const KEIN_ENTZUGSFEHLER: EntzugsZustand = { fehler: null };
 
+/*
+ * Die Formen der beiden Server-Aktionen, so wie `useActionState` sie erwartet.
+ * Die Client-Komponenten bekommen die Aktion als Eigenschaft hereingereicht
+ * statt sie zu importieren — siehe Begründung an `ZugangsZeile`.
+ */
+export type EinladungsAktion = (
+  vorher: EinladungsZustand,
+  formular: FormData,
+) => Promise<EinladungsZustand>;
+
+export type EntzugsAktion = (
+  vorher: EntzugsZustand,
+  formular: FormData,
+) => Promise<EntzugsZustand>;
+
 /**
  * Fest auf Wien gestellt, nicht auf die Zeitzone des Servers.
  *

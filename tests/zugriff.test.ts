@@ -1,9 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { sql } from "drizzle-orm";
 import {
+  NichtBetreiber,
   ZugriffVerweigert,
+  gibtEsBetreiber,
+  istBetreiber,
   istEmailZugelassen,
   normalisiereEmail,
+  pruefeBetreiber,
   pruefeZugang,
   pruefeZugangFuerNutzer,
 } from "@/lib/zugriff";
@@ -22,6 +26,7 @@ beforeAll(async () => {
       email text not null unique,
       hinzugefuegt_von text,
       erstellt_am timestamptz not null default now(),
+      ist_betreiber boolean not null default false,
       constraint allowed_email_nicht_leer check (email <> ''),
       constraint allowed_email_klein check (email = lower(email))
     );
@@ -180,6 +185,95 @@ describe("pruefeZugangFuerNutzer", () => {
   it("weist ohne Kennung ab", async () => {
     expect(await faengtFehler(() => pruefeZugangFuerNutzer(umgebung.db, ""))).toBeInstanceOf(
       ZugriffVerweigert,
+    );
+  });
+});
+
+/*
+ * Die Betreiber-Rolle.
+ *
+ * Sie ist nötig, seit ein Entzug wirklich aussperrt: Vorher war es kosmetisch,
+ * wenn eine eingeladene Person die Zeile der betreibenden Person löschte; heute
+ * beendet derselbe Griff deren Sitzungen, und es gibt in der App keinen Weg
+ * zurück.
+ */
+describe("istBetreiber", () => {
+  it("erkennt die betreibende Person", async () => {
+    await umgebung.db
+      .insert(allowedEmail)
+      .values({ id: "1", email: "chef@example.at", istBetreiber: true });
+
+    expect(await istBetreiber(umgebung.db, "chef@example.at")).toBe(true);
+  });
+
+  it("erkennt sie unabhängig von der Schreibweise", async () => {
+    await umgebung.db
+      .insert(allowedEmail)
+      .values({ id: "1", email: "chef@example.at", istBetreiber: true });
+
+    expect(await istBetreiber(umgebung.db, " Chef@Example.AT ")).toBe(true);
+  });
+
+  // Der Normalfall: eingeladen heißt nicht verwalten dürfen.
+  it("meldet eine bloß freigeschaltete Adresse als nicht betreibend", async () => {
+    await umgebung.db.insert(allowedEmail).values({ id: "1", email: "gast@example.at" });
+
+    expect(await istBetreiber(umgebung.db, "gast@example.at")).toBe(false);
+  });
+
+  it("meldet eine unbekannte Adresse als nicht betreibend", async () => {
+    expect(await istBetreiber(umgebung.db, "fremd@example.at")).toBe(false);
+  });
+
+  it("meldet eine leere Adresse als nicht betreibend", async () => {
+    expect(await istBetreiber(umgebung.db, "   ")).toBe(false);
+  });
+});
+
+describe("gibtEsBetreiber", () => {
+  it("meldet eine frisch aufgesetzte Datenbank als betreiberlos", async () => {
+    expect(await gibtEsBetreiber(umgebung.db)).toBe(false);
+  });
+
+  // Eine Datenbank, bei der beim Aufsetzen das Flag vergessen wurde: Es gibt
+  // Einträge, aber niemanden, der verwalten darf.
+  it("meldet eine Liste ohne gesetztes Flag als betreiberlos", async () => {
+    await umgebung.db.insert(allowedEmail).values({ id: "1", email: "gast@example.at" });
+
+    expect(await gibtEsBetreiber(umgebung.db)).toBe(false);
+  });
+
+  it("erkennt, sobald es eine betreibende Person gibt", async () => {
+    await umgebung.db
+      .insert(allowedEmail)
+      .values({ id: "1", email: "chef@example.at", istBetreiber: true });
+
+    expect(await gibtEsBetreiber(umgebung.db)).toBe(true);
+  });
+});
+
+describe("pruefeBetreiber", () => {
+  it("lässt die betreibende Person passieren", async () => {
+    await umgebung.db
+      .insert(allowedEmail)
+      .values({ id: "1", email: "chef@example.at", istBetreiber: true });
+
+    expect(await pruefeBetreiber(umgebung.db, "chef@example.at")).toBeUndefined();
+  });
+
+  it("wirft NichtBetreiber für eine bloß eingeladene Person", async () => {
+    await umgebung.db.insert(allowedEmail).values({ id: "1", email: "gast@example.at" });
+
+    expect(await faengtFehler(() => pruefeBetreiber(umgebung.db, "gast@example.at"))).toBeInstanceOf(
+      NichtBetreiber,
+    );
+  });
+
+  it("wirft auch, wenn es überhaupt keine betreibende Person gibt", async () => {
+    // Fehlschlagen in Richtung „zu", nicht in Richtung „offen": Eine Datenbank
+    // ohne gesetztes Flag darf die Verwaltung nicht für alle öffnen.
+    expect(await faengtFehler(() => pruefeBetreiber(umgebung.db, "wer@example.at"))).toBeInstanceOf(
+      NichtBetreiber,
     );
   });
 });

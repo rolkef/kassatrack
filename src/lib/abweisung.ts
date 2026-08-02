@@ -35,8 +35,11 @@ function fristBeginn(): Date {
 /**
  * Schreibt einen abgelehnten Anmeldeversuch mit — und wirft dabei **nie**.
  *
- * Diese Funktion wird aus dem Registrierungs-Gate in `src/lib/auth.ts` heraus
- * gerufen, unmittelbar bevor die Abweisung geworfen wird. Ein Fehler beim
+ * Diese Funktion wird aus **beiden** Gates in `src/lib/auth.ts` heraus gerufen —
+ * dem Registrierungs-Gate (`user.create.before`) und dem Sitzungs-Gate
+ * (`session.create.before`) —, unmittelbar bevor die Abweisung geworfen wird.
+ * Ein abgewiesener Anmeldeversuch einer entzogenen Person landet also ebenso
+ * hier wie einer von einer nie eingeladenen Adresse. Ein Fehler beim
  * Mitschreiben darf die Abweisung unter keinen Umständen ersetzen oder
  * verschlucken: Eine fehlende Protokolltabelle wäre sonst ein Weg, aus einer
  * geschlossenen Anmeldung eine offene zu machen. Deshalb liegt der Fang hier

@@ -2,8 +2,7 @@
 
 import { useActionState, useEffect, useId, useState } from "react";
 import { Schaltflaeche } from "@/components/ui/schaltflaeche";
-import { ladeEin } from "./aktionen";
-import { LEERER_ZUSTAND, type EinladungsZustand } from "./zustand";
+import { LEERER_ZUSTAND, type EinladungsAktion, type EinladungsZustand } from "./zustand";
 
 /**
  * Adresse eintragen, Link herausbekommen, Link kopieren.
@@ -15,8 +14,8 @@ import { LEERER_ZUSTAND, type EinladungsZustand } from "./zustand";
  * wenn die Zwischenablage nicht verfügbar ist (etwa über schlichtes HTTP), darf
  * das keine Sackgasse sein.
  */
-export function EinladungsFormular() {
-  const [zustand, absenden, laeuft] = useActionState(ladeEin, LEERER_ZUSTAND);
+export function EinladungsFormular({ aktion }: { aktion: EinladungsAktion }) {
+  const [zustand, absenden, laeuft] = useActionState(aktion, LEERER_ZUSTAND);
   const feldId = useId();
   const meldungsId = useId();
 

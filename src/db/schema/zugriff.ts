@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, check, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 export const allowedEmail = pgTable(
   "allowed_email",
@@ -8,6 +8,20 @@ export const allowedEmail = pgTable(
     email: text("email").notNull().unique(),
     hinzugefuegtVon: text("hinzugefuegt_von"),
     erstelltAm: timestamp("erstellt_am", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Darf einladen und Zugänge entziehen.
+     *
+     * Braucht es, seit ein Entzug wirklich aussperrt: Vorher war es kosmetisch,
+     * wenn eine eingeladene Person die Zeile der betreibenden Person löschte;
+     * heute beendet derselbe Griff deren Sitzungen, und es gibt in der App
+     * keinen Weg zurück.
+     *
+     * `default false` ist Absicht: Wer eingeladen wird, ist erst einmal
+     * niemand. Die erste Zeile mit `true` wird beim Aufsetzen von Hand gesetzt
+     * (siehe Task 10). Die App darf deshalb **nicht** annehmen, dass es
+     * überhaupt eine betreibende Person gibt.
+     */
+    istBetreiber: boolean("ist_betreiber").notNull().default(false),
   },
   (tabelle) => [
     // Der leere String ist nicht durch `notNull()` ausgeschlossen und wäre
