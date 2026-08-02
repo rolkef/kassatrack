@@ -870,20 +870,8 @@ afterAll(async () => {
   await umgebung.stop();
 });
 
-// Nicht `truncate`: ein Test lässt die Tabelle absichtlich fallen, um einen
-// Datenbankausfall zu erzeugen. Neu anlegen ist daher robuster als leeren.
 beforeEach(async () => {
-  await umgebung.db.execute(sql`drop table if exists allowed_email`);
-  await umgebung.db.execute(sql`
-    create table allowed_email (
-      id text primary key,
-      email text not null unique,
-      hinzugefuegt_von text,
-      erstellt_am timestamptz not null default now(),
-      constraint allowed_email_nicht_leer check (email <> ''),
-      constraint allowed_email_klein check (email = lower(email))
-    )
-  `);
+  await umgebung.db.execute(sql`truncate table allowed_email`);
 });
 
 describe("Registrierungs-Gate", () => {
@@ -933,15 +921,29 @@ describe("Fehlerweitergabe", () => {
   // Registrierung führen, ohne dass ein Test rot wird.
   it("gibt einen Datenbankfehler weiter, statt ihn als Ablehnung zu behandeln", async () => {
     await umgebung.db.execute(sql`drop table allowed_email`);
-    const gate = holeGate();
+    try {
+      const gate = holeGate();
 
-    const fehler = await faengtFehler(() =>
-      gate({ email: "christopher@example.at", name: "Christopher" } as never, {} as never),
-    );
+      const fehler = await faengtFehler(() =>
+        gate({ email: "christopher@example.at", name: "Christopher" } as never, {} as never),
+      );
 
-    expect(fehler).toBeDefined();
-    // Eine Ablehnung wäre ein APIError. Alles andere muss durchgereicht werden.
-    expect(fehler).not.toBeInstanceOf(APIError);
+      expect(fehler).toBeDefined();
+      // Eine Ablehnung wäre ein APIError. Alles andere muss durchgereicht werden.
+      expect(fehler).not.toBeInstanceOf(APIError);
+    } finally {
+      // Unbedingt wiederherstellen, sonst reißt dieser Test jeden folgenden mit.
+      await umgebung.db.execute(sql`
+        create table allowed_email (
+          id text primary key,
+          email text not null unique,
+          hinzugefuegt_von text,
+          erstellt_am timestamptz not null default now(),
+          constraint allowed_email_nicht_leer check (email <> ''),
+          constraint allowed_email_klein check (email = lower(email))
+        )
+      `);
+    }
   });
 });
 ```
