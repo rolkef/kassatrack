@@ -21,6 +21,8 @@ Diese gelten für **jede** Task, ohne dass sie dort wiederholt werden.
 - Secrets ausschließlich über Environment-Variablen. Keine Keys, Passwörter oder Client-Secrets im Repo, auch nicht in Beispielen — dort stehen Platzhalter.
 - Jede Task endet mit einem Commit. Commit-Nachrichten auf Deutsch, Conventional-Commits-Präfix englisch (`feat:`, `chore:`, `test:`, `docs:`, `fix:`).
 - Node 24 LTS ist der Fallback-Runtime, Bun der Standard. Der Produktions-Container nutzt Bun.
+- **Jede Task, die Oberfläche baut (7, 8, 9), MUSS zuerst die Skills `impeccable`, `ui-ux-pro-max` und `frontend-design` aufrufen** und deren Ergebnis umsetzen. Das ist eine Vorgabe aus den globalen Entwicklungsrichtlinien des Nutzers, keine Empfehlung. Das Markup in diesem Plan ist Struktur- und Verhaltensvorgabe — welche Elemente existieren, welche zugänglichen Namen sie tragen, welche Zustände sie haben — **nicht** die gestalterische Endfassung. Es ohne Gestaltungsarbeit abzuschreiben verfehlt die Aufgabe.
+- **Gestalterische Richtung (vom Nutzer gewählt): zweischichtig.** Die Oberfläche, die man täglich sieht, ist ruhig, großflächig und selbsterklärend — große Touch-Ziele, hoher Kontrast, eine Aussage pro Bildschirm, keine Fachbegriffe. Ein Tap auf „Detail" öffnet die dichte, technische Ebene mit Tabellenziffern, Verläufen und Datenalter. Die App soll modern und technisch aussehen und gleichzeitig für nicht technikaffine Personen bedienbar sein; die Zweischichtigkeit ist die Auflösung dieses Widerspruchs. Deutsch, österreichisches Vokabular.
 
 ---
 
@@ -1237,6 +1239,12 @@ git commit -m "feat: Routen-Schutz und Sicherheits-Header"
 
 ## Task 7: Anmeldeseite mit Passkey und Google
 
+> **Gestaltungspflicht.** Rufe vor dem ersten Code die Skills `impeccable`, `ui-ux-pro-max` und `frontend-design` auf und setze deren Ergebnis um. Das Markup unten legt Struktur und Verhalten fest — welche Schaltflächen existieren, wie sie zugänglich heißen, welche Zustände es gibt, wohin Fehler gehen. Die Gestaltung ist deine Aufgabe: Typografie, Raster, Farbe, Zustände, Bewegung.
+>
+> Diese Seite ist das Erste, was jeder Nutzer sieht, und für manche das Einzige, wenn etwas schiefgeht. Sie muss auf einem Handy in der Hand funktionieren, mit großen Zielflächen, und sie muss vertrauenswürdig wirken — hier gibt jemand seine Identität preis. Zwei Wege, kein Formular, keine Passwörter. Der Fehlerfall („Deine Adresse ist nicht freigeschaltet") ist ein regulärer Zustand, kein Nachgedanke: Er trifft jeden, der ohne Einladung hier landet, und muss erklären statt zu beschuldigen.
+>
+> shadcn/ui ist im Stack vorgesehen. Wenn du Komponenten davon einziehst, dann bewusst und ohne den Rest des Katalogs mitzuschleppen.
+
 **Files:**
 - Create: `src/app/anmelden/page.tsx`, `src/components/anmelde-formular.tsx`
 - Test: `tests/anmelde-formular.test.tsx`
@@ -1416,6 +1424,12 @@ git commit -m "feat: Anmeldeseite mit Passkey und Google"
 ---
 
 ## Task 8: Einladungs-Flow und Zugriffsverwaltung
+
+> **Gestaltungspflicht.** Rufe vor dem UI-Teil die Skills `impeccable`, `ui-ux-pro-max` und `frontend-design` auf und setze deren Ergebnis um. Der Logikteil (`src/lib/einladung.ts`) ist reine Funktionalität und davon nicht betroffen — die Gestaltungspflicht gilt für `/verwaltung/zugriff` und `/einladung/[token]`.
+>
+> Die Verwaltungsseite ist ein Werkzeug für genau eine Person und darf dicht sein. Wichtig ist, dass sie **Folgen sichtbar macht**: „Entziehen" sperrt jemanden aus, das muss man sehen, bevor man klickt, nicht danach. Der erzeugte Einladungslink muss sich mit einem Griff kopieren lassen — er wird per Nachricht weitergeschickt, das ist der eigentliche Zweck der Seite.
+>
+> Die Einladungsseite dagegen sieht jemand genau einmal, oft auf dem Handy, ohne Vorwissen und ohne Kontext. Sie muss in einem Satz erklären, was KassaTrack ist und was jetzt zu tun ist.
 
 **Files:**
 - Create: `src/lib/einladung.ts`, `src/app/verwaltung/zugriff/page.tsx`, `src/app/verwaltung/zugriff/aktionen.ts`
@@ -1755,6 +1769,8 @@ git commit -m "feat: Einladungs-Flow und Zugriffsverwaltung"
 
 ## Task 9: PWA-Grundgerüst
 
+> **Gestaltungspflicht für die Icons und die App-Hülle.** Rufe die Skills `impeccable`, `ui-ux-pro-max` und `frontend-design` auf. Das Icon liegt nach der Installation auf dem Startbildschirm neben Billa- und Spar-Apps — es ist das Gesicht der App und kein Platzhalter. Ebenso `theme_color` und `background_color`: sie bestimmen, wie der Splash-Screen und die Statusleiste aussehen, und sollen zur gewählten Gestaltung passen statt aus diesem Plan abgeschrieben zu werden.
+
 **Files:**
 - Create: `src/app/manifest.ts`, `src/app/sw.ts`, `public/icon-192.png`, `public/icon-512.png`
 - Modify: `next.config.ts`, `src/app/layout.tsx`
@@ -1878,7 +1894,7 @@ const config: NextConfig = {
 export default withSerwist(config);
 ```
 
-Icons erzeugen: ein schlichtes quadratisches PNG mit dunklem Grund und weißem „K" in 192×192 und 512×512 nach `public/` legen. Solange kein Logo existiert, reicht eine einfarbige Fläche mit Buchstabe — es blockiert nichts und wird in Plan 2 ersetzt.
+Icons erzeugen: 192×192 und 512×512 nach `public/`, gestaltet gemäß der Gestaltungspflicht oben. Kein einfarbiger Platzhalter — was hier entsteht, liegt danach auf dem Startbildschirm.
 
 `src/app/layout.tsx` — im `metadata`-Export ergänzen:
 
