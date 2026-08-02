@@ -1461,6 +1461,8 @@ git commit -m "feat: Anmeldeseite mit Passkey und Google"
 >
 > Die Verwaltungsseite ist ein Werkzeug für genau eine Person und darf dicht sein. Wichtig ist, dass sie **Folgen sichtbar macht**: „Entziehen" sperrt jemanden aus, das muss man sehen, bevor man klickt, nicht danach. Der erzeugte Einladungslink muss sich mit einem Griff kopieren lassen — er wird per Nachricht weitergeschickt, das ist der eigentliche Zweck der Seite.
 >
+> **Aus Task 7 mitgebracht:** Eine Abweisung wird derzeit nirgends festgehalten. Die abgewiesene Person erfährt davon, Christopher nicht. Halte abgelehnte Anmeldeversuche fest (Zeitpunkt, Adresse, Weg) und zeige sie in der Zugriffsverwaltung — das ist der Ort, an dem jemand nachsieht, warum eine eingeladene Person nicht hereinkommt. Es ist zugleich das einzige Signal, das einen Anmeldeversuch von außen überhaupt sichtbar macht.
+>
 > Die Einladungsseite dagegen sieht jemand genau einmal, oft auf dem Handy, ohne Vorwissen und ohne Kontext. Sie muss in einem Satz erklären, was KassaTrack ist und was jetzt zu tun ist.
 
 **Files:**
