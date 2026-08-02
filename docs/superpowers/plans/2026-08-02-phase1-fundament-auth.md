@@ -6,7 +6,7 @@
 
 **Architecture:** Ein einzelner Next.js-16-Container (standalone output) mit Postgres 18 als Coolify-Service. Better Auth 1.6 übernimmt Sessions, Passkeys und Google-OAuth; der Zugriffsschutz sitzt bewusst **nicht** im UI, sondern in einem `databaseHooks.user.create.before`-Hook, der jeden Registrierungspfad abfängt. Die Allowlist-Logik liegt als reine, testbare Funktion getrennt von der Auth-Konfiguration.
 
-**Tech Stack:** Next.js 16.2.12, React 19.2.8, TypeScript 7.0.2, Tailwind CSS 4.3.3, Drizzle ORM 0.45.2, Better Auth 1.6.25, PostgreSQL 18, Bun 1.3.14, Serwist 9.5.12 (PWA), Testcontainers 12.0.4.
+**Tech Stack:** Next.js 16.2.12, React 19.2.8, TypeScript 7.0.2, Tailwind CSS 4.3.3, Drizzle ORM 0.45.2, Better Auth 1.6.25, PostgreSQL 18, Bun 1.3.14, Serwist 9.5.12 (PWA).
 
 ## Global Constraints
 
@@ -49,7 +49,7 @@ Diese gelten für **jede** Task, ohne dass sie dort wiederholt werden.
 | `src/app/verwaltung/zugriff/page.tsx` | Allowlist verwalten, Einladungen erzeugen |
 | `src/app/manifest.ts` | PWA-Manifest |
 | `src/app/sw.ts` | Serwist Service Worker |
-| `tests/helfer/db.ts` | Testcontainer-Postgres-Lifecycle |
+| `tests/helfer/db.ts` | Lifecycle der Wegwerf-Testdatenbanken |
 
 Bewusste Trennung: `src/lib/zugriff.ts` enthält die gesamte Zugriffsentscheidung als reine Funktionen über einem schmalen DB-Interface. `src/lib/auth.ts` verdrahtet sie nur. Dadurch ist die sicherheitskritischste Logik der App ohne laufenden Auth-Stack testbar.
 
@@ -538,7 +538,7 @@ Expected: PASS, 2 pass 0 fail. Der erste Lauf dauert länger, weil das Postgres-
 
 ```bash
 git add compose.yaml drizzle.config.ts src/db tests/db.test.ts tests/helfer
-git commit -m "feat: Postgres 18 mit Drizzle und Testcontainer-Testumgebung"
+git commit -m "feat: Postgres 18 mit Drizzle und isolierten Testdatenbanken"
 ```
 
 ---
