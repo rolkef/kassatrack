@@ -1469,7 +1469,15 @@ git commit -m "feat: Anmeldeseite mit Passkey und Google"
 >
 > Die neue Prüfung erbt dieselben Auflagen wie die alte: Sie muss jede nicht freigeschaltete Adresse ablehnen, sie muss Datenbankfehler weiterreichen statt sie zu schlucken, und ein Fehler beim Protokollieren darf keine Ablehnung verschlucken.
 >
-> **Rollen bleiben bewusst außen vor** (Nutzerentscheidung). Jede eingeladene Person darf einladen und entziehen. Für einen Haushalt mit wenigen Personen, die einander vertrauen, ist das vertretbar; es ist als bekannte Lücke vermerkt und wird relevant, sobald jemand dazukommt, dem nicht vollständig vertraut wird.
+> **Es gibt genau eine Rolle: Betreiber.** Ursprünglich aufgeschoben, dann vom Nutzer entschieden, nachdem das Aussperren tatsächlich wirksam wurde — denn seither kann ein Fehlklick auf die falsche Zeile den Betreiber dauerhaft aussperren, mit Rückweg nur über die Datenbank.
+>
+> - `allowed_email` bekommt eine Spalte `ist_betreiber` (`boolean not null default false`).
+> - `/verwaltung/zugriff` und **beide** Server-Aktionen prüfen die Rolle, nicht nur `requireUser()`. Server-Aktionen sind eigene Endpunkte; eine Prüfung allein auf der Seite schützt sie nicht.
+> - Wer keine Betreiber-Rolle hat, bekommt eine verständliche deutsche Erklärung statt einer technischen Fehlerseite — er hat nichts falsch gemacht.
+> - **Der Betreiber kann sich nicht selbst entziehen.** Das schließt den Fall aus, vor dem die Rolle schützen soll, und kostet eine Bedingung.
+> - Der erste Eintrag entsteht beim Deployment per SQL (siehe Task 10) und muss `ist_betreiber = true` tragen — sonst kommt niemand an die Verwaltung. Task 10 ist entsprechend anzupassen.
+>
+> Bewusst in Kauf genommen: Fällt der Zugang des Betreibers aus, kommt niemand mehr an die Verwaltung, und es hilft nur die Datenbank. Der Nutzer wurde darauf hingewiesen und hat sich dafür entschieden.
 >
 > **Aus Task 7 mitgebracht:** Eine Abweisung wird derzeit nirgends festgehalten. Die abgewiesene Person erfährt davon, Christopher nicht. Halte abgelehnte Anmeldeversuche fest (Zeitpunkt, Adresse, Weg) und zeige sie in der Zugriffsverwaltung — das ist der Ort, an dem jemand nachsieht, warum eine eingeladene Person nicht hereinkommt. Es ist zugleich das einzige Signal, das einen Anmeldeversuch von außen überhaupt sichtbar macht.
 >
@@ -2101,8 +2109,15 @@ Einmalig im Container-Terminal:
 Da die Allowlist leer ist, kommt niemand herein — auch der Betreiber nicht.
 Einmalig im Postgres-Terminal:
 
-    insert into allowed_email (id, email)
-    values (gen_random_uuid()::text, 'deine.adresse@example.at');
+    insert into allowed_email (id, email, ist_betreiber)
+    values (gen_random_uuid()::text, 'deine.adresse@example.at', true);
+
+`ist_betreiber` ist zwingend. Ohne dieses Flag kommt die Adresse zwar
+herein, aber niemand kann die Zugriffsverwaltung öffnen — und weitere
+Personen einladen ginge dann nur noch per SQL.
+
+Die Adresse muss kleingeschrieben sein, sonst greift die Bedingung
+`allowed_email_klein` und der Eintrag wird abgelehnt.
 
 Danach über `/verwaltung/zugriff` alle weiteren Personen einladen.
 
