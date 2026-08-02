@@ -283,7 +283,7 @@ Wöchentlicher Job holt die Flugblatt-PDFs von Hofer, Lidl und Penny, `gpt-5.4-m
 2. Unit-Tests: Beleg-Parser gegen echte Belegfotos aller fünf Ketten als Fixtures — Summenprobe muss auf den Cent stimmen, Rabatt- und Pfandzeilen korrekt klassifiziert
 3. Unit-Tests: Matching-Kaskade — EAN-Treffer, Fuzzy-Treffer, Neuanlage
 4. Unit-Tests: Referenzpreis ignoriert `PROMO`, aktueller Bestpreis berücksichtigt sie; das Butter-Szenario (Hofer-Aktion schlägt Spar-Normalpreis) ist als Test abgebildet
-5. Integrationstest: kompletter Beleg-Upload-Flow gegen Testcontainer-Postgres
+5. Integrationstest: kompletter Beleg-Upload-Flow gegen den Test-Postgres aus compose.yaml
 6. Auth: manueller Test, dass eine Google-Adresse **außerhalb** der Allowlist abgewiesen wird — beide Pfade
 7. Lighthouse auf Mobil: Performance ≥ 90, PWA installierbar
 8. Deployment auf Coolify erreichbar, Beleg-Upload end-to-end auf dem Handy durchgespielt

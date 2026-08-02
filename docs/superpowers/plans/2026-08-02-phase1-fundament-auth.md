@@ -335,11 +335,13 @@ git commit -m "feat: fail-fast Validierung der Environment-Variablen"
   - `db` aus `@/db` — Drizzle-Instanz vom Typ `NodePgDatabase<typeof schema>`
   - `starteTestDatenbank(): Promise<TestDatenbank>` aus `tests/helfer/db.ts`, wobei `TestDatenbank = { db: NodePgDatabase<any>; url: string; stop: () => Promise<void> }`
 
-- [ ] **Step 1: Abhängigkeiten und lokale Datenbank**
+**Warum kein Testcontainers.** Testcontainers spricht mit dem Docker-Daemon über HTTP auf einer Windows-Named-Pipe. Bun unterstützt HTTP über Named Pipes auf Windows nicht — der Fehler steckt in Bun selbst, nicht in einer Bibliothek, und lässt sich weder über `DOCKER_HOST` noch über einen anderen Pipe-Namen umgehen. Statt die Docker-API anzusprechen, läuft daher ein gewöhnlicher Postgres-Container aus `compose.yaml` auf Port 5433, und der Test-Helfer legt sich darin pro Aufruf eine eigene, zufällig benannte Datenbank an. Das isoliert Testdateien genauso zuverlässig, hängt an keiner Docker-API und funktioniert unverändert auf Linux und in CI.
+
+- [ ] **Step 1: Abhängigkeiten und lokale Datenbanken**
 
 ```bash
 bun add drizzle-orm@0.45.2 pg
-bun add -d drizzle-kit@0.31.10 @types/pg @testcontainers/postgresql@12.0.4
+bun add -d drizzle-kit@0.31.10 @types/pg
 ```
 
 `compose.yaml`:
@@ -363,8 +365,33 @@ services:
       timeout: 5s
       retries: 10
 
+  # Nur für Tests. Daten liegen im RAM und sind nach dem Stoppen weg —
+  # das ist gewollt und macht die Testläufe schnell.
+  postgres-test:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kassatrack
+      POSTGRES_PASSWORD: kassatrack
+      POSTGRES_DB: postgres
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kassatrack"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   postgres-daten:
+```
+
+Vor jedem Testlauf, der die Datenbank braucht:
+
+```bash
+docker compose up -d postgres-test
 ```
 
 - [ ] **Step 2: Den fehlschlagenden Test schreiben**
@@ -411,10 +438,14 @@ Expected: FAIL — `Cannot find module './helfer/db'`
 `tests/helfer/db.ts`:
 
 ```ts
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+
+/** Verbindung zur Wartungsdatenbank des Test-Postgres aus compose.yaml. */
+const VERWALTUNGS_URL =
+  process.env.TEST_DATABASE_URL ?? "postgres://kassatrack:kassatrack@localhost:5433/postgres";
 
 export type TestDatenbank = {
   db: NodePgDatabase<Record<string, never>>;
@@ -422,12 +453,33 @@ export type TestDatenbank = {
   stop: () => Promise<void>;
 };
 
-export async function starteTestDatenbank(): Promise<TestDatenbank> {
-  const container: StartedPostgreSqlContainer = await new PostgreSqlContainer(
-    "postgres:18-alpine",
-  ).start();
+function urlFuer(datenbank: string): string {
+  const url = new URL(VERWALTUNGS_URL);
+  url.pathname = `/${datenbank}`;
+  return url.toString();
+}
 
-  const url = container.getConnectionUri();
+/**
+ * Legt eine frische Wegwerf-Datenbank an. Jeder Aufruf bekommt eine eigene,
+ * dadurch beeinflussen sich Testdateien nicht gegenseitig.
+ */
+export async function starteTestDatenbank(): Promise<TestDatenbank> {
+  const name = `kassatrack_test_${randomBytes(6).toString("hex")}`;
+
+  const verwaltung = new Pool({ connectionString: VERWALTUNGS_URL });
+  try {
+    await verwaltung.query(`create database "${name}"`);
+  } catch (fehler) {
+    throw new Error(
+      `Testdatenbank konnte nicht angelegt werden. Läuft der Test-Postgres? ` +
+        `Starte ihn mit "docker compose up -d postgres-test". ` +
+        `Ursache: ${(fehler as Error).message}`,
+    );
+  } finally {
+    await verwaltung.end();
+  }
+
+  const url = urlFuer(name);
   const pool = new Pool({ connectionString: url });
   const db = drizzle(pool);
 
@@ -438,7 +490,11 @@ export async function starteTestDatenbank(): Promise<TestDatenbank> {
     url,
     stop: async () => {
       await pool.end();
-      await container.stop();
+      const aufraeumen = new Pool({ connectionString: VERWALTUNGS_URL });
+      // "with (force)" trennt noch offene Verbindungen, sonst schlaegt das
+      // Loeschen fehl, wenn ein Test seinen Pool nicht sauber geschlossen hat.
+      await aufraeumen.query(`drop database if exists "${name}" with (force)`);
+      await aufraeumen.end();
     },
   };
 }
@@ -475,9 +531,7 @@ export default defineConfig({
 
 - [ ] **Step 5: Test laufen lassen und Erfolg bestätigen**
 
-Docker Desktop muss laufen.
-
-Run: `bun test tests/db.test.ts`
+Run: `docker compose up -d postgres-test && bun test tests/db.test.ts`
 Expected: PASS, 2 pass 0 fail. Der erste Lauf dauert länger, weil das Postgres-Image gezogen wird.
 
 - [ ] **Step 6: Commit**
