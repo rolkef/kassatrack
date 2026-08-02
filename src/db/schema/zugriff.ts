@@ -31,3 +31,26 @@ export const invite = pgTable("invite", {
   gueltigBis: timestamp("gueltig_bis", { withTimezone: true }).notNull(),
   eingeloestAm: timestamp("eingeloest_am", { withTimezone: true }),
 });
+
+/**
+ * Abgelehnte Anmeldeversuche.
+ *
+ * Ohne diese Tabelle ist eine Abweisung folgenlos: Die abgewiesene Person
+ * erfährt davon, die betreibende Person nicht. Sie ist damit zugleich das
+ * einzige Signal, an dem ein Anmeldeversuch von außen überhaupt sichtbar wird.
+ *
+ * `email` ist bewusst nullable — das Gate weist auch dann ab, wenn gar keine
+ * Adresse mitkam, und dieser Fall soll nicht unter den Tisch fallen.
+ * `weg` ist der Endpunktpfad von Better Auth (`/callback/google`, …) und
+ * ebenfalls nullable, weil der Kontext beim Hook fehlen kann.
+ *
+ * **Aufbewahrung:** Hier stehen E-Mail-Adressen von Personen, die keine Nutzer
+ * sind. Der Inhalt wird nach `AUFBEWAHRUNG_TAGE` (siehe `src/lib/abweisung.ts`)
+ * gelöscht. Bewusst kein Fremdschlüssel auf `user` — es gibt keinen Nutzer.
+ */
+export const abweisung = pgTable("abweisung", {
+  id: text("id").primaryKey(),
+  email: text("email"),
+  weg: text("weg"),
+  zeitpunkt: timestamp("zeitpunkt", { withTimezone: true }).notNull().defaultNow(),
+});

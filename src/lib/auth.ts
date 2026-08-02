@@ -7,6 +7,7 @@ import { db } from "@/db";
 import * as authSchema from "@/db/schema/auth";
 import { env } from "@/lib/env";
 import { ZUGANG_NICHT_FREIGESCHALTET } from "@/lib/anmeldung";
+import { haltAbweisungFest } from "@/lib/abweisung";
 import { pruefeZugang, ZugriffVerweigert, type ZugriffsDb } from "@/lib/zugriff";
 
 const rpID = new URL(env.BETTER_AUTH_URL).hostname;
@@ -37,11 +38,31 @@ export function erzeugeAuth(datenbank: ZugriffsDb) {
         create: {
           // Einziger Punkt, durch den JEDER Registrierungspfad muss —
           // Google, Passkey, alles. Kein Weg daran vorbei.
-          before: async (user, _context) => {
+          before: async (user, kontext) => {
             try {
               await pruefeZugang(datenbank, user.email);
             } catch (fehler) {
               if (fehler instanceof ZugriffVerweigert) {
+                /*
+                 * Einziger Ort, an dem eine Abweisung überhaupt festgehalten
+                 * werden kann — weiter unten steht ausdrücklich, dass die
+                 * Adresse in nichts landen darf, was nach außen geht.
+                 *
+                 * `haltAbweisungFest` wirft konstruktionsbedingt nie (der Fang
+                 * liegt in der Funktion selbst, damit kein Umbau hier ihn
+                 * weglassen kann). Damit kann ein kaputtes Protokoll die
+                 * Abweisung darunter nicht ersetzen: Ein fehlendes Protokoll
+                 * darf niemals zu einer offenen Registrierung führen.
+                 *
+                 * `kontext.path` ist der Endpunktpfad von Better Auth
+                 * (`/callback/google`, `/passkey/…`) und sagt, auf welchem Weg
+                 * jemand angeklopft hat. Der Kontext kann `null` sein.
+                 */
+                await haltAbweisungFest(datenbank, {
+                  email: user.email,
+                  weg: typeof kontext?.path === "string" ? kontext.path : null,
+                });
+
                 /*
                  * `message` und `code` tragen absichtlich denselben Wert —
                  * beides sind hier Marken, kein Fließtext.
@@ -69,13 +90,16 @@ export function erzeugeAuth(datenbank: ZugriffsDb) {
                  * Der für Menschen geschriebene Satz steht in `ABWEISUNG` und
                  * wird erst auf der Anmeldeseite eingesetzt.
                  *
-                 * Achtung: Die abgewiesene Adresse steht damit **nirgends** —
-                 * weder in der URL noch in einem Protokoll. `fehler` wird hier
-                 * verworfen. Sie als `cause` mitzugeben wäre falsch: Better
-                 * Call fädelt `body.cause` in den Fehler ein, und der Body wird
-                 * auf dem 403-Weg serialisiert. Wer mitschreiben will, wer
-                 * abgewiesen wurde, tut das in der Zugriffsverwaltung
-                 * (Task 8), nicht hier.
+                 * Achtung: In dem, was **nach außen** geht, steht die Adresse
+                 * nicht — weder in der URL noch im Fehlerkörper. `fehler` wird
+                 * hier verworfen. Sie als `cause` mitzugeben wäre falsch:
+                 * Better Call fädelt `body.cause` in den Fehler ein, und der
+                 * Body wird auf dem 403-Weg serialisiert.
+                 *
+                 * Nach **innen** steht sie sehr wohl: `haltAbweisungFest` oben
+                 * legt sie in `abweisung` ab, wo nur die angemeldete
+                 * betreibende Person sie sieht (`/verwaltung/zugriff`), und
+                 * wo sie nach `AUFBEWAHRUNG_TAGE` wieder verschwindet.
                  */
                 throw new APIError("FORBIDDEN", {
                   code: ZUGANG_NICHT_FREIGESCHALTET,

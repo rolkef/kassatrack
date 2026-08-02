@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { APIError } from "better-auth/api";
 import { erzeugeAuth } from "@/lib/auth";
 import { ABWEISUNG, ZUGANG_NICHT_FREIGESCHALTET, deuteRueckleitung } from "@/lib/anmeldung";
+import { holeAbweisungen } from "@/lib/abweisung";
 import { allowedEmail } from "@/db/schema/zugriff";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
 import { faengtFehler } from "./helfer/fehler";
@@ -27,6 +28,21 @@ async function erzeugeAllowedEmailTabelle(db: TestDatenbank["db"]) {
   `);
 }
 
+/**
+ * Wie `erzeugeAllowedEmailTabelle`, und aus demselben Grund als Funktion: Der
+ * Test „auch wenn das Mitschreiben scheitert" löscht die Tabelle absichtlich.
+ */
+async function erzeugeAbweisungsTabelle(db: TestDatenbank["db"]) {
+  await db.execute(sql`
+    create table abweisung (
+      id text primary key,
+      email text,
+      weg text,
+      zeitpunkt timestamptz not null default now()
+    )
+  `);
+}
+
 let umgebung: TestDatenbank;
 let auth: ReturnType<typeof erzeugeAuth>;
 
@@ -40,6 +56,7 @@ function holeGate() {
 beforeAll(async () => {
   umgebung = await starteTestDatenbank();
   await erzeugeAllowedEmailTabelle(umgebung.db);
+  await erzeugeAbweisungsTabelle(umgebung.db);
   // Nur die Better-Auth-Tabelle, die die neuen Adapter-Tests tatsächlich
   // brauchen (siehe "Datenbank-Adapter" unten) — bewusst nicht session,
   // account, verification, passkey, da hier niemand darauf zugreift.
@@ -63,6 +80,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await umgebung.db.execute(sql`truncate table allowed_email`);
+  await umgebung.db.execute(sql`truncate table abweisung`);
   await umgebung.db.execute(sql`truncate table "user" cascade`);
 });
 
@@ -100,6 +118,86 @@ describe("Registrierungs-Gate", () => {
     const koerper = (fehler as APIError).body;
     expect(koerper?.message).not.toContain("fremd@example.at");
     expect(koerper?.code).not.toContain("fremd@example.at");
+  });
+});
+
+/*
+ * Bis hierher war eine Abweisung folgenlos: Die abgewiesene Person erfuhr
+ * davon, die betreibende Person nicht. Und weil die Adresse aus dem
+ * ausgehenden Fehler bewusst herausgehalten wird (siehe oben), gab es gar
+ * keinen Weg mehr, auf dem sie irgendwo ankäme.
+ */
+describe("Mitschreiben der Abweisung", () => {
+  it("hält eine Abweisung mit Adresse und Weg fest", async () => {
+    const gate = holeGate();
+    await faengtFehler(() =>
+      gate({ email: "fremd@example.at", name: "Fremd" } as never, {
+        path: "/callback/google",
+      } as never),
+    );
+
+    const [eintrag] = await holeAbweisungen(umgebung.db);
+    expect(eintrag?.email).toBe("fremd@example.at");
+    expect(eintrag?.weg).toBe("/callback/google");
+  });
+
+  it("kommt ohne Kontext zurecht", async () => {
+    const gate = holeGate();
+    await faengtFehler(() =>
+      gate({ email: "fremd@example.at", name: "Fremd" } as never, null as never),
+    );
+
+    const [eintrag] = await holeAbweisungen(umgebung.db);
+    expect(eintrag?.weg).toBeNull();
+  });
+
+  it("schreibt eine erfolgreiche Anmeldung nicht mit", async () => {
+    await umgebung.db.insert(allowedEmail).values({ id: "ok", email: "erlaubt@example.at" });
+    const gate = holeGate();
+    await faengtFehler(() =>
+      gate({ email: "erlaubt@example.at", name: "Erlaubt" } as never, {} as never),
+    );
+
+    expect(await holeAbweisungen(umgebung.db)).toEqual([]);
+  });
+
+  /*
+   * Der Test, der die Sicherheitsgrenze bewacht.
+   *
+   * Das Mitschreiben sitzt im Gate, direkt vor dem `throw`. Würde ein Fehler
+   * dort nach außen dringen, wäre aus einer sauberen 403-Abweisung ein
+   * Serverfehler geworden — und ein Serverfehler an dieser Stelle ist genau
+   * das, was Better Auth anders behandelt als eine Abweisung. Eine fehlende
+   * Protokolltabelle darf niemals die Tür öffnen.
+   */
+  it("weist trotzdem mit einem APIError ab, wenn das Mitschreiben scheitert", async () => {
+    await umgebung.db.execute(sql`drop table abweisung`);
+    try {
+      const gate = holeGate();
+      const fehler = await faengtFehler(() =>
+        gate({ email: "fremd@example.at", name: "Fremd" } as never, {} as never),
+      );
+
+      expect(fehler).toBeInstanceOf(APIError);
+      expect((fehler as APIError).statusCode).toBe(403);
+    } finally {
+      await erzeugeAbweisungsTabelle(umgebung.db);
+    }
+  });
+
+  it("lässt eine freigeschaltete Adresse auch dann durch, wenn das Protokoll fehlt", async () => {
+    await umgebung.db.execute(sql`drop table abweisung`);
+    try {
+      await umgebung.db.insert(allowedEmail).values({ id: "ok2", email: "erlaubt@example.at" });
+      const gate = holeGate();
+      const fehler = await faengtFehler(() =>
+        gate({ email: "erlaubt@example.at", name: "Erlaubt" } as never, {} as never),
+      );
+
+      expect(fehler).toBeUndefined();
+    } finally {
+      await erzeugeAbweisungsTabelle(umgebung.db);
+    }
   });
 });
 

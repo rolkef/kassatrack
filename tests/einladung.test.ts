@@ -1,0 +1,174 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { sql } from "drizzle-orm";
+import {
+  EinladungUngueltig,
+  entzieheZugang,
+  erzeugeEinladung,
+  holeZugaenge,
+  loeseEinladungEin,
+} from "@/lib/einladung";
+import { user } from "@/db/schema/auth";
+import { istEmailZugelassen } from "@/lib/zugriff";
+import { invite } from "@/db/schema/zugriff";
+import { eq } from "drizzle-orm";
+import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
+import { faengtFehler } from "./helfer/fehler";
+
+let umgebung: TestDatenbank;
+
+beforeAll(async () => {
+  umgebung = await starteTestDatenbank();
+  await umgebung.db.execute(sql`
+    create table allowed_email (
+      id text primary key,
+      email text not null unique,
+      hinzugefuegt_von text,
+      erstellt_am timestamptz not null default now(),
+      constraint allowed_email_nicht_leer check (email <> ''),
+      constraint allowed_email_klein check (email = lower(email))
+    );
+    create table invite (
+      id text primary key,
+      token text not null unique,
+      email text not null,
+      erstellt_von text not null,
+      erstellt_am timestamptz not null default now(),
+      gueltig_bis timestamptz not null,
+      eingeloest_am timestamptz
+    );
+    create table "user" (
+      id text primary key,
+      name text not null,
+      email text not null unique,
+      email_verified boolean not null default false,
+      image text,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
+  `);
+}, 120_000);
+
+afterAll(async () => {
+  await umgebung.stop();
+});
+
+beforeEach(async () => {
+  await umgebung.db.execute(sql`truncate table allowed_email, invite, "user"`);
+});
+
+describe("erzeugeEinladung", () => {
+  it("liefert einen Token mit mindestens 32 Zeichen", async () => {
+    const { token } = await erzeugeEinladung(umgebung.db, {
+      email: "neu@example.at",
+      erstelltVon: "chris",
+    });
+    expect(token.length).toBeGreaterThanOrEqual(32);
+  });
+
+  it("schaltet die Adresse sofort frei", async () => {
+    await erzeugeEinladung(umgebung.db, { email: "Neu@Example.AT", erstelltVon: "chris" });
+    expect(await istEmailZugelassen(umgebung.db, "neu@example.at")).toBe(true);
+  });
+
+  it("ist bei doppeltem Aufruf für dieselbe Adresse unkritisch", async () => {
+    await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
+    expect(
+      await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" }),
+    ).toBeDefined();
+  });
+});
+
+describe("loeseEinladungEin", () => {
+  it("liefert die Adresse zurück", async () => {
+    const { token } = await erzeugeEinladung(umgebung.db, {
+      email: "neu@example.at",
+      erstelltVon: "chris",
+    });
+    expect((await loeseEinladungEin(umgebung.db, token)).email).toBe("neu@example.at");
+  });
+
+  it("lässt sich kein zweites Mal einlösen", async () => {
+    const { token } = await erzeugeEinladung(umgebung.db, {
+      email: "neu@example.at",
+      erstelltVon: "chris",
+    });
+    await loeseEinladungEin(umgebung.db, token);
+    expect(await faengtFehler(() => loeseEinladungEin(umgebung.db, token))).toBeInstanceOf(
+      EinladungUngueltig,
+    );
+  });
+
+  it("weist einen unbekannten Token ab", async () => {
+    expect(await faengtFehler(() => loeseEinladungEin(umgebung.db, "gibtesnicht"))).toBeInstanceOf(
+      EinladungUngueltig,
+    );
+  });
+
+  it("weist einen abgelaufenen Token ab", async () => {
+    const { token } = await erzeugeEinladung(umgebung.db, {
+      email: "neu@example.at",
+      erstelltVon: "chris",
+    });
+    await umgebung.db
+      .update(invite)
+      .set({ gueltigBis: new Date(Date.now() - 1000) })
+      .where(eq(invite.token, token));
+
+    expect(await faengtFehler(() => loeseEinladungEin(umgebung.db, token))).toBeInstanceOf(
+      EinladungUngueltig,
+    );
+  });
+});
+
+describe("entzieheZugang", () => {
+  it("entfernt die Adresse aus der Allowlist", async () => {
+    await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
+    await entzieheZugang(umgebung.db, "neu@example.at");
+    expect(await istEmailZugelassen(umgebung.db, "neu@example.at")).toBe(false);
+  });
+
+  // Diese Zeile hält die Aussage der Oberfläche ehrlich. Die Allowlist wird nur
+  // beim Anlegen eines Kontos geprüft — ein bestehendes Konto überlebt das
+  // Entziehen. Würde jemand das später ändern, muss auch der Satz auf der
+  // Verwaltungsseite geändert werden, und dieser Test fällt ihm auf.
+  it("lässt ein bereits angelegtes Konto bestehen", async () => {
+    await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
+    await umgebung.db
+      .insert(user)
+      .values({ id: "u1", name: "Neu", email: "neu@example.at", updatedAt: new Date() });
+
+    await entzieheZugang(umgebung.db, "neu@example.at");
+
+    expect((await umgebung.db.select().from(user)).length).toBe(1);
+  });
+});
+
+describe("holeZugaenge", () => {
+  it("liefert die freigeschalteten Adressen in der Reihenfolge ihrer Aufnahme", async () => {
+    await erzeugeEinladung(umgebung.db, { email: "erste@example.at", erstelltVon: "chris" });
+    await erzeugeEinladung(umgebung.db, { email: "zweite@example.at", erstelltVon: "chris" });
+
+    expect((await holeZugaenge(umgebung.db)).map((z) => z.email)).toEqual([
+      "erste@example.at",
+      "zweite@example.at",
+    ]);
+  });
+
+  it("meldet eine Adresse ohne Konto als kontolos", async () => {
+    await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
+    expect((await holeZugaenge(umgebung.db))[0]?.hatKonto).toBe(false);
+  });
+
+  it("erkennt ein bestehendes Konto", async () => {
+    await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
+    await umgebung.db
+      .insert(user)
+      .values({ id: "u1", name: "Neu", email: "neu@example.at", updatedAt: new Date() });
+
+    expect((await holeZugaenge(umgebung.db))[0]?.hatKonto).toBe(true);
+  });
+
+  it("liefert eine leere Liste, wenn niemand freigeschaltet ist", async () => {
+    expect(await holeZugaenge(umgebung.db)).toEqual([]);
+  });
+});

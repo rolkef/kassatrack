@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
  * lautlos und breitenabhängig falsch. Wer eine andere Größe braucht, nimmt
  * `groesse`, nicht `className`.
  */
-type Variante = "haupt" | "neben";
+type Variante = "haupt" | "neben" | "gefahr";
 type Groesse = "ruhig" | "dicht";
 
 const varianten: Record<Variante, string> = {
@@ -24,6 +24,14 @@ const varianten: Record<Variante, string> = {
   // `linie-stark` statt `linie`: der Rand ist hier die einzige Grenze des
   // Bedienelements und muss deshalb die 3:1 aus WCAG 1.4.11 halten.
   neben: "border border-linie-stark bg-hintergrund text-vordergrund hover:bg-flaeche",
+  /*
+   * Nur für den letzten Schritt einer zerstörenden Handlung, nie für den
+   * Auslöser davor. Rot wirkt, weil es selten ist: Stünde es schon an jeder
+   * „Zugang entziehen"-Schaltfläche einer Liste, wäre die ganze Seite rot und
+   * die Warnung im Moment der Entscheidung nichts mehr wert. Die Tokens sind
+   * in globals.css ausdrücklich dafür reserviert.
+   */
+  gefahr: "bg-fehler text-auf-fehler hover:bg-fehler-hell",
 };
 
 const groessen: Record<Groesse, string> = {
