@@ -1662,6 +1662,12 @@ const withSerwist = withSerwistInit({
 
 const config: NextConfig = {
   output: "standalone",
+  // Aus Task 1: Next muss den TypeScript-CLI für den Typecheck verwenden,
+  // weil der eingebaute Checker mit TypeScript 7 nicht zurechtkommt.
+  // Dieses Flag darf beim Überschreiben der Datei NICHT verloren gehen.
+  experimental: {
+    useTypeScriptCli: true,
+  },
 };
 
 export default withSerwist(config);
