@@ -1,21 +1,34 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "connect-src 'self'",
-  "font-src 'self'",
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-].join("; ");
+export function proxy(request: NextRequest): NextResponse {
+  const token = Buffer.from(crypto.randomUUID()).toString("base64");
+  const entwicklung = process.env.NODE_ENV === "development";
 
-export function proxy(_request: NextRequest): NextResponse {
-  const antwort = NextResponse.next();
+  const csp = `
+    default-src 'self';
+    script-src 'self' 'nonce-${token}' 'strict-dynamic'${entwicklung ? " 'unsafe-eval'" : ""};
+    style-src 'self' 'nonce-${token}';
+    img-src 'self' blob: data:;
+    font-src 'self';
+    connect-src 'self';
+    object-src 'none';
+    base-uri 'self';
+    form-action 'self';
+    frame-ancestors 'none';
+    upgrade-insecure-requests;
+  `
+    .replace(/\s{2,}/g, " ")
+    .trim();
 
-  antwort.headers.set("content-security-policy", CSP);
+  // Auch auf der ANFRAGE setzen: daran erkennt Next, dass es seine eigenen
+  // Hydration-Skripte mit dem Token versehen soll.
+  const anfrageKopf = new Headers(request.headers);
+  anfrageKopf.set("x-nonce", token);
+  anfrageKopf.set("content-security-policy", csp);
+
+  const antwort = NextResponse.next({ request: { headers: anfrageKopf } });
+
+  antwort.headers.set("content-security-policy", csp);
   antwort.headers.set("strict-transport-security", "max-age=63072000; includeSubDomains; preload");
   antwort.headers.set("x-frame-options", "DENY");
   antwort.headers.set("x-content-type-options", "nosniff");
