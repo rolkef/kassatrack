@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { sql } from "drizzle-orm";
 import { APIError } from "better-auth/api";
 import { erzeugeAuth } from "@/lib/auth";
+import { ABWEISUNG, ZUGANG_NICHT_FREIGESCHALTET } from "@/lib/anmeldung";
 import { allowedEmail } from "@/db/schema/zugriff";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
 import { faengtFehler } from "./helfer/fehler";
@@ -76,6 +77,37 @@ describe("Registrierungs-Gate", () => {
       gate({ email: "fremd@example.at", name: "Fremd" } as never, {} as never),
     );
     expect(fehler).toBeDefined();
+  });
+
+  // Ohne `code` im APIError-Body wird die Abweisung unsichtbar: Der
+  // OAuth-Callback von Better Auth prüft `e.body?.code` und macht nur dann
+  // eine Umleitung auf `errorCallbackURL` daraus (siehe
+  // better-auth/dist/api/routes/callback.mjs). Fehlt der Code, fliegt der
+  // Fehler weiter und die Person landet auf einer englischen Standardseite
+  // statt auf der Anmeldeseite. Der Code muss zudem exakt der sein, den
+  // `deuteRueckleitung` erwartet.
+  it("gibt der Abweisung den Code mit, den die Anmeldeseite auswertet", async () => {
+    const gate = holeGate();
+    const fehler = await faengtFehler(() =>
+      gate({ email: "fremd@example.at", name: "Fremd" } as never, {} as never),
+    );
+
+    expect(fehler).toBeInstanceOf(APIError);
+    const koerper = (fehler as APIError).body;
+    expect(koerper?.code).toBe(ZUGANG_NICHT_FREIGESCHALTET);
+    expect(koerper?.message).toBe(ABWEISUNG);
+  });
+
+  // Better Auth hängt `message` als `error_description` an die
+  // Rückleitungs-URL. Eine E-Mail-Adresse stünde damit im Browserverlauf und
+  // in jedem Zugriffsprotokoll davor — deshalb bleibt sie serverseitig.
+  it("trägt die abgewiesene Adresse nicht in die Meldung, die nach außen geht", async () => {
+    const gate = holeGate();
+    const fehler = await faengtFehler(() =>
+      gate({ email: "fremd@example.at", name: "Fremd" } as never, {} as never),
+    );
+
+    expect((fehler as APIError).body?.message).not.toContain("fremd@example.at");
   });
 
   it("lässt eine freigeschaltete Adresse durch", async () => {

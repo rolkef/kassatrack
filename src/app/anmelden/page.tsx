@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AnmeldeFormular } from "@/components/anmelde-formular";
+import { deuteRueckleitung } from "@/lib/anmeldung";
 import { holeSitzung } from "@/lib/sitzung";
 
 export const metadata: Metadata = {
@@ -11,9 +12,22 @@ export const metadata: Metadata = {
  * Die ruhige Ebene in Reinform: eine Aussage, zwei Wege, ein Erklärkasten.
  * Der Inhalt steht linksbündig in einer schmalen Spalte, die Spalte selbst
  * sitzt eine Spur über der Bildmitte — dort, wo das Auge sie erwartet.
+ *
+ * Diese Seite ist zugleich die Landestelle gescheiterter Google-Anmeldungen.
+ * Der Allowlist-Test läuft im OAuth-Callback, also serverseitig, nachdem der
+ * Browser die Seite längst verlassen hat; Better Auth leitet dann auf
+ * `errorCallbackURL` zurück und hängt `?error=<code>` an. Ohne dieses Auslesen
+ * käme eine nicht eingeladene Person nie an dem Kasten an, der für sie
+ * geschrieben wurde.
  */
-export default async function AnmeldeSeite() {
+export default async function AnmeldeSeite({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   if (await holeSitzung()) redirect("/");
+
+  const { error } = await searchParams;
 
   return (
     <main
@@ -32,7 +46,7 @@ export default async function AnmeldeSeite() {
         </p>
       </header>
 
-      <AnmeldeFormular />
+      <AnmeldeFormular anfangsMeldung={deuteRueckleitung(error)} />
     </main>
   );
 }

@@ -8,9 +8,15 @@ import "./globals.css";
  * die CSP erlaubt `font-src 'self'`, ein Google-Fonts-CDN wäre blockiert.
  */
 
+/*
+ * `latin` genügt: ä, ö, ü und ß liegen darin. `latin-ext` deckt osteuropäische
+ * Zeichen ab, die in dieser App nirgends vorkommen, und würde jede
+ * vorgeladene Schrift unnötig vergrößern.
+ */
+
 /** Nur für den Namen und große Überschriften — sparsam, sonst wird sie laut. */
 const anzeige = Bricolage_Grotesque({
-  subsets: ["latin", "latin-ext"],
+  subsets: ["latin"],
   axes: ["opsz"],
   variable: "--schrift-anzeige",
   display: "swap",
@@ -18,7 +24,7 @@ const anzeige = Bricolage_Grotesque({
 
 /** Alles Lesbare. Für Bildschirmtext gezeichnet, große x-Höhe, offene Punzen. */
 const text = Wix_Madefor_Text({
-  subsets: ["latin", "latin-ext"],
+  subsets: ["latin"],
   variable: "--schrift-text",
   display: "swap",
 });

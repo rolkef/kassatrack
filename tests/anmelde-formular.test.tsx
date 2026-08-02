@@ -22,6 +22,9 @@ mock.module("@/lib/auth-client", () => ({
 }));
 
 const { AnmeldeFormular } = await import("@/components/anmelde-formular");
+const { ANMELDE_PFAD, ZUGANG_NICHT_FREIGESCHALTET, deuteRueckleitung } = await import(
+  "@/lib/anmeldung"
+);
 
 afterEach(() => {
   cleanup();
@@ -56,6 +59,16 @@ describe("AnmeldeFormular", () => {
     await userEvent.click(screen.getByRole("button", { name: /Mit Google anmelden/i }));
     expect(signInSocial).toHaveBeenCalledWith(
       expect.objectContaining({ provider: "google" }),
+    );
+  });
+
+  it("gibt Google eine Rückleitung auf die Anmeldeseite mit", async () => {
+    // Ohne errorCallbackURL landet eine nicht freigeschaltete Adresse auf der
+    // englischen Standard-Fehlerseite von Better Auth statt hier.
+    render(<AnmeldeFormular />);
+    await userEvent.click(screen.getByRole("button", { name: /Mit Google anmelden/i }));
+    expect(signInSocial).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCallbackURL: ANMELDE_PFAD }),
     );
   });
 
@@ -170,5 +183,51 @@ describe("AnmeldeFormular", () => {
     const beschreibung = passkey.getAttribute("aria-describedby");
     expect(beschreibung).toBeTruthy();
     expect(document.getElementById(beschreibung!)?.textContent).toContain("Fingerabdruck");
+  });
+
+  it("kündigt die Einladungspflicht an, bevor jemand es versucht", () => {
+    // Der Kern des Bildschirms: Die Abweisung wird erklärt, bevor sie eintritt.
+    // Ohne diesen Test könnte ein Umbau den Satz spurlos entfernen.
+    render(<AnmeldeFormular />);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.body.textContent).toContain("nur eingeladenen Adressen offen");
+  });
+
+  it("zeigt eine mitgegebene Anfangsmeldung sofort an", async () => {
+    // So kommt die Abweisung aus dem Google-Callback auf die Seite.
+    render(
+      <AnmeldeFormular anfangsMeldung={{ text: "Abgewiesen.", abgewiesen: true }} />,
+    );
+
+    const alarm = screen.getByRole("alert").textContent ?? "";
+    expect(alarm).toContain("Abgewiesen.");
+    expect(alarm).toContain("eingeladen");
+
+    // Und verschwindet beim nächsten Versuch wieder.
+    await userEvent.click(screen.getByRole("button", { name: /Mit Passkey anmelden/i }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+});
+
+describe("deuteRueckleitung", () => {
+  it("erkennt den Code des Allowlist-Gates als Abweisung", () => {
+    const meldung = deuteRueckleitung(ZUGANG_NICHT_FREIGESCHALTET);
+    expect(meldung?.abgewiesen).toBe(true);
+    expect(meldung?.text).toContain("nicht freigeschaltet");
+  });
+
+  it("behandelt fremde OAuth-Fehlercodes nicht als Abweisung", () => {
+    // Better Auth und Google schicken eigene Codes. `access_denied` heißt
+    // „Zustimmung abgebrochen" — dafür ist der Einladungs-Rat falsch.
+    for (const code of ["access_denied", "invalid_code", "unable_to_get_user_info"]) {
+      const meldung = deuteRueckleitung(code);
+      expect(meldung?.abgewiesen).toBe(false);
+      expect(meldung?.text).toContain("nicht abgeschlossen");
+    }
+  });
+
+  it("liefert ohne Parameter keine Meldung", () => {
+    expect(deuteRueckleitung(undefined)).toBeNull();
+    expect(deuteRueckleitung("")).toBeNull();
   });
 });

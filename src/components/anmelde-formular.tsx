@@ -3,17 +3,17 @@
 import { useId, useState, useTransition } from "react";
 import { authClient } from "@/lib/auth-client";
 import { Schaltflaeche } from "@/components/ui/schaltflaeche";
+import {
+  ANMELDE_PFAD,
+  deuteAntwort,
+  KEINE_VERBINDUNG,
+  type Meldung,
+} from "@/lib/anmeldung";
 
 type Weg = "passkey" | "google";
 
 type Fehler = { message?: string; status?: number };
 type Ergebnis = { error?: Fehler | null };
-
-/**
- * `abgewiesen` heißt: die Adresse steht nicht auf der Liste. Nur dann ist der
- * Rat „frag die Person, die dich eingeladen hat" richtig.
- */
-type Meldung = { text: string; abgewiesen: boolean };
 
 const TEXTE = {
   passkey: {
@@ -26,27 +26,14 @@ const TEXTE = {
   },
 } as const;
 
-const ABWEISUNG_OHNE_GRUND = "Diese Adresse ist für KassaTrack nicht freigeschaltet.";
-const ABGEBROCHEN = "Die Anmeldung wurde nicht abgeschlossen. Versuch es noch einmal.";
-const KEINE_VERBINDUNG =
-  "Keine Verbindung zum Server. Prüf dein Internet und versuch es noch einmal.";
-
-/**
- * 403 vergibt ausschließlich das Allowlist-Gate in `src/lib/auth.ts`, und es
- * schreibt dazu eine deutsche, an Menschen gerichtete Begründung — die zeigen
- * wir wörtlich. Jeder andere Fehler kommt von Better Auth auf Englisch und in
- * Entwicklersprache („Auth cancelled"); den übersetzen wir nicht, sondern
- * sagen selbst, was los ist. Am Text zu erkennen, was passiert ist, wäre
- * brüchig — der Status ist die verlässliche Auskunft.
- */
-function deuteFehler(fehler: Fehler): Meldung {
-  if (fehler.status === 403) {
-    return { text: fehler.message?.trim() || ABWEISUNG_OHNE_GRUND, abgewiesen: true };
-  }
-  return { text: ABGEBROCHEN, abgewiesen: false };
-}
-
 type Eigenschaften = {
+  /**
+   * Meldung, mit der die Seite startet. Der Google-Weg entscheidet erst im
+   * OAuth-Callback und kommt als Rückleitung mit `?error=…` zurück — die
+   * Abweisung liegt dann schon fest, bevor diese Komponente überhaupt lädt.
+   * Die Seite liest den Parameter und reicht das Ergebnis hier herein.
+   */
+  anfangsMeldung?: Meldung | null;
   /**
    * Was nach einer erfolgreichen Anmeldung passiert. Voreinstellung ist ein
    * vollständiger Seitenwechsel, kein Router-Übergang: die Sitzung ist neu,
@@ -68,9 +55,10 @@ type Eigenschaften = {
  * gemacht.
  */
 export function AnmeldeFormular({
+  anfangsMeldung = null,
   nachErfolg = () => window.location.assign("/"),
 }: Eigenschaften = {}) {
-  const [meldung, setMeldung] = useState<Meldung | null>(null);
+  const [meldung, setMeldung] = useState<Meldung | null>(anfangsMeldung);
   const [weg, setWeg] = useState<Weg | null>(null);
   const [laeuft, starte] = useTransition();
   const beschreibungId = useId();
@@ -83,7 +71,7 @@ export function AnmeldeFormular({
       try {
         const ergebnis = await ausfuehren();
         if (ergebnis?.error) {
-          setMeldung(deuteFehler(ergebnis.error));
+          setMeldung(deuteAntwort(ergebnis.error));
         } else {
           nachErfolg();
         }
@@ -121,7 +109,15 @@ export function AnmeldeFormular({
           symbol={<GoogleMarke />}
           onClick={() =>
             anmelden("google", () =>
-              authClient.signIn.social({ provider: "google", callbackURL: "/" }),
+              authClient.signIn.social({
+                provider: "google",
+                callbackURL: "/",
+                // Ohne das landet eine nicht freigeschaltete Adresse auf der
+                // englischen Standard-Fehlerseite von Better Auth: Die
+                // Entscheidung fällt erst im Callback, also serverseitig,
+                // lange nachdem dieser Aufruf aufgelöst hat.
+                errorCallbackURL: ANMELDE_PFAD,
+              }),
             )
           }
         >
@@ -132,7 +128,7 @@ export function AnmeldeFormular({
       <p
         id={beschreibungId}
         data-auftritt
-        className="animate-auftritt text-[0.9375rem] leading-relaxed text-gedaempft [animation-delay:140ms]"
+        className="animate-auftritt text-base leading-relaxed text-gedaempft [animation-delay:140ms]"
       >
         Ein Passkey ist kein Passwort: Du bestätigst mit Fingerabdruck, Gesicht oder dem Code
         deines Geräts.
@@ -142,7 +138,7 @@ export function AnmeldeFormular({
         data-auftritt
         data-ton={meldung ? "hinweis" : "ruhig"}
         className={
-          "animate-auftritt rounded-klein px-4 py-3.5 text-[0.9375rem] leading-relaxed [animation-delay:200ms] " +
+          "animate-auftritt rounded-klein px-4 py-3.5 text-base leading-relaxed [animation-delay:200ms] " +
           "data-[ton=ruhig]:bg-flaeche data-[ton=ruhig]:text-gedaempft " +
           "data-[ton=hinweis]:bg-hinweis data-[ton=hinweis]:text-auf-hinweis"
         }

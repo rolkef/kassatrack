@@ -17,7 +17,15 @@
   --color-flaeche: oklch(0.958 0.007 200); /* #ecf3f3 — abgesetzte Flächen */
   --color-vordergrund: oklch(0.22 0.018 200); /* #101d1e — 16,5:1 */
   --color-gedaempft: oklch(0.45 0.016 200); /* #4b5859 — 7,1:1, Sekundärtext */
-  --color-linie: oklch(0.885 0.009 200); /* #d3dbdb */
+  /*
+   * Zwei Linienstärken, weil sie zwei Pflichten haben. `linie` trennt und
+   * schmückt — dafür gibt es keine Kontrastvorgabe. `linie-stark` umrandet
+   * Bedienelemente, die sich nur über ihren Rand zu erkennen geben (leeres
+   * Eingabefeld, Tabellenzelle); dort verlangt WCAG 1.4.11 3:1, und die
+   * schwache Linie liegt bei 1,35:1. Im Zweifel die starke nehmen.
+   */
+  --color-linie: oklch(0.885 0.009 200); /* #d3dbdb — nur Trennung, nicht Umrandung */
+  --color-linie-stark: oklch(0.6 0.013 200); /* #788383 — 3,76:1 auf Papier, 3,48:1 auf Fläche */
 
   /* Marke */
   --color-marke: oklch(0.42 0.075 205); /* #005860 — 7,8:1 auf Papier */
@@ -30,6 +38,19 @@
    */
   --color-hinweis: oklch(0.925 0.045 78); /* #f7e3c5 */
   --color-auf-hinweis: oklch(0.33 0.055 55); /* #4b2d18 — 9,9:1 */
+
+  /*
+   * Echtes Rot und echtes Grün, reserviert für Semantik: Rot für zerstörende
+   * Aktionen (Löschen im Belegarchiv, Zugang entziehen), Grün für Bestätigung.
+   * Die Kettenfarben-Regel oben gilt der Marke, nicht diesen beiden — ein
+   * grüner Haken liest niemand als Spar. Wer eine Abweisung meint, nimmt
+   * `hinweis`: wer nicht eingeladen ist, hat nichts falsch gemacht.
+   */
+  --color-fehler: oklch(0.47 0.165 27); /* #a32321 — 7,1:1 auf Papier */
+  --color-fehler-hell: oklch(0.53 0.17 27); /* #ba3630 — Hover */
+  --color-auf-fehler: oklch(0.99 0.012 27); /* #fff9f7 — 7,1:1 auf fehler */
+  --color-erfolg: oklch(0.46 0.09 155); /* #266741 — 6,5:1 auf Papier */
+  --color-auf-erfolg: oklch(0.99 0.01 155); /* #f7fef9 — 6,6:1 auf erfolg */
 
   /* Schrift: Anzeige nur für den Namen, Text für alles Lesbare, Zahlen später. */
   --font-sans: var(--schrift-text), ui-sans-serif, system-ui, sans-serif;
@@ -70,13 +91,24 @@
 /*
  * Der Auftritt ist Zierde. Wer ihn abbestellt, sieht die Seite sofort.
  *
- * Bewusst außerhalb jeder @layer: `animate-auftritt` ist eine Utility und
- * würde eine Regel aus @layer base überstimmen — die Abschaltung liefe ins
- * Leere. Ungeschichtetes CSS steht in Tailwind v4 über allen Schichten.
- * Der Fortschrittsring der Schaltfläche bleibt absichtlich ausgenommen:
- * er meldet einen Zustand, er schmückt nicht.
+ * Zwei Dinge daran sind Absicht:
+ *
+ * Erstens steht der Block außerhalb jeder @layer. `animate-auftritt` ist eine
+ * Utility und würde eine Regel aus @layer base überstimmen — die Abschaltung
+ * liefe ins Leere. Ungeschichtetes CSS steht in Tailwind v4 über allen
+ * Schichten.
+ *
+ * Zweitens greift er auf die Utility-Klasse selbst und nicht nur auf ein
+ * von Hand gesetztes Attribut. Wer `animate-auftritt` schreibt und
+ * `data-auftritt` vergisst, würde sonst still an der Einstellung vorbeilaufen,
+ * und weder Test noch Bau bemerkt das. `data-auftritt` bleibt für alles
+ * daneben, was künftig anders animiert wird.
+ *
+ * Der Fortschrittsring der Schaltfläche ist bewusst ausgenommen: er meldet
+ * einen Zustand, er schmückt nicht.
  */
 @media (prefers-reduced-motion: reduce) {
+  .animate-auftritt,
   [data-auftritt] {
     animation: none;
     opacity: 1;
