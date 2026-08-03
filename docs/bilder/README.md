@@ -34,10 +34,14 @@ Verzeichnis geleert, damit kein veraltetes Bild stehen bleibt.
 | `pwa-installationsdialog.png` | Der native Chrome-Dialog „App installieren" für KassaTrack |
 | `pwa-installiert.png` | Die installierte App im eigenen Fenster, ohne Adressleiste, auf der Anmeldeseite |
 
-Diese beiden Aufnahmen stammen aus einer früheren Sitzung, deren Bericht verloren
-ging (siehe `task-9-report.md`). Bei der Nachprüfung deckte sich der Seiteninhalt
-beider Bilder deckungsgleich mit dem, was der aktuelle Code liefert — der native
-Installationsdialog selbst ließ sich in der Nachprüfung nicht neu erzeugen, weil
-die automatisierte Browsersitzung `beforeinstallprompt` nicht auslöste und kein
-Werkzeug für native Fenster-Aufnahmen zur Verfügung stand. Näheres dazu im
-Bericht.
+Diese beiden Aufnahmen stammen aus einer früheren Sitzung, deren Bericht
+verloren ging (siehe `task-9-report.md`). Bei der Nachprüfung ließ sich nur
+`pwa-installiert.png` gegenprüfen: sein Seiteninhalt (Text, Farben, Layout der
+Anmeldeseite) stimmt mit einem frisch gezogenen Screenshot des aktuellen Codes
+überein. `pwa-installationsdialog.png` zeigt den nativen Chrome-Dialog, der
+die Seite verdeckt — er hat keinen Seiteninhalt, gegen den sich prüfen ließe.
+Belegt ist dort nur, dass App-Name und Kachelfarbe im Bild zum aktuellen
+Manifest passen; der Dialog selbst ließ sich in der Nachprüfung nicht neu
+auslösen, weil die automatisierte Browsersitzung `beforeinstallprompt` nicht
+feuerte und kein Werkzeug für native Fenster-Aufnahmen zur Verfügung stand.
+Näheres dazu im Bericht.

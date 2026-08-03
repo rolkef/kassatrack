@@ -1,5 +1,5 @@
-import { CacheFirst, Serwist, type PrecacheEntry } from "serwist";
-import { istUnveraenderlicheDatei } from "./sw-regeln";
+import { Serwist, type PrecacheEntry } from "serwist";
+import { laufzeitCaching } from "./sw-laufzeit-caching";
 
 /*
  * Der Service Worker.
@@ -19,10 +19,14 @@ declare const self: { __SW_MANIFEST: (PrecacheEntry | string)[] | undefined };
 new Serwist({
   /*
    * Vorgeladen wird, was der Bau erzeugt hat: die gehashten Bündel unter
-   * `_next/static` und der Inhalt von `public/`. Alles davon ist öffentlich
-   * und unveränderlich. Seiten sind nicht dabei — sie können es gar nicht
-   * sein, weil jede Antwort dieser App ein frisches CSP-Nonce trägt und
-   * deshalb dynamisch erzeugt wird.
+   * `_next/static` und der Inhalt von `public/`. Seiten sind nicht dabei —
+   * nicht wegen des CSP-Nonce (das entscheidet nur, ob eine Antwort dynamisch
+   * gerendert wird, nicht ob sie vorgeladen werden könnte), sondern weil
+   * `@serwist/next` sie beim Bau ausdrücklich ausschließt: Jede kompilierte
+   * Seite liegt unter `server/` im Bau-Ergebnis, und dessen Precache-Filter
+   * verwirft alles, dessen Name mit `server/` beginnt
+   * (`@serwist/next/dist/index.mjs:218`). Das gilt unabhängig davon, ob die
+   * CSP je gelockert würde.
    */
   precacheEntries: self.__SW_MANIFEST,
   skipWaiting: true,
@@ -35,7 +39,8 @@ new Serwist({
   navigationPreload: false,
   disableDevLogs: true,
   /*
-   * Bewusst nur eine Regel — und ausdrücklich nicht `defaultCache`.
+   * Bewusst nur eine Regel, aus `sw-laufzeit-caching.ts` — und ausdrücklich
+   * nicht `defaultCache`.
    *
    * `defaultCache` aus `@serwist/next/worker` legt Seiten, RSC-Antworten und
    * GET-Schnittstellen mit „Network First" in den Cache. In einer App, die nur
@@ -48,11 +53,10 @@ new Serwist({
    * Anfragen laufen unverändert ins Netz — für jede Seite, jede RSC-Antwort
    * und jeden Aufruf unter `/api/` ist die App also genau so schnell und
    * genau so frisch wie ohne Service Worker.
+   *
+   * Dass es dabei bleibt, prüft `tests/sw-laufzeit-caching.test.ts` gegen
+   * `laufzeitCaching` selbst — nicht nur gegen `istUnveraenderlicheDatei` in
+   * Isolation, sondern gegen das Feld, das hier tatsächlich verdrahtet wird.
    */
-  runtimeCaching: [
-    {
-      matcher: ({ url, sameOrigin }) => istUnveraenderlicheDatei(url, sameOrigin),
-      handler: new CacheFirst({ cacheName: "unveraenderliche-dateien" }),
-    },
-  ],
+  runtimeCaching: laufzeitCaching,
 }).addEventListeners();

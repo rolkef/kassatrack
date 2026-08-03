@@ -12,6 +12,17 @@
  * sich unter seiner Adresse nie wieder ändert. Für alles andere gibt es keine
  * Route; solche Anfragen behandelt der Worker gar nicht, sie laufen unberührt
  * ins Netz wie ohne Worker.
+ *
+ * Achtung für spätere Änderungen: diese Liste regelt nur die *Laufzeit*-Regel
+ * in `sw.ts`. `@serwist/next` legt daneben unabhängig davon **jede** Datei
+ * unter `public/` in den Vorlade-Speicher (`precacheEntries`) —
+ * uneingeschränkt, siehe `@serwist/next/dist/index.mjs:196-208`. Käme dort je
+ * eine HTML-Datei hinzu (etwa eine `public/offline.html`), läge sie ab dem
+ * nächsten Bau automatisch im Precache, unabhängig von jeder Regel hier, und
+ * Serwists Standard-Precache-Route würde eine Navigation dorthin aus dem
+ * Cache beantworten. Wer künftig Dateien nach `public/` legt, prüft deshalb
+ * nicht nur diese Liste, sondern auch, ob die Datei überhaupt nach `public/`
+ * gehört.
  */
 
 /**
@@ -35,6 +46,16 @@ const UNVERAENDERLICHE_DATEIEN = [
   "/icon-192.png",
   "/icon-512.png",
   "/icon-maskierbar-512.png",
+  /*
+   * Einziger Sonderfall: `apple-icon.png` trägt keinen Hash im Namen (Next
+   * hängt es unter festem Pfad ein) und wird von `CacheFirst` ohne Ablauf
+   * bedient. Ändert sich das Icon, sieht eine bereits installierte App das
+   * nie — `CacheFirst` liefert die alte Datei, solange der Cache-Eintrag
+   * besteht. Bewusst hingenommen: ein einzelnes, praktisch unveränderliches
+   * Bild. Ändert sich das Icon künftig doch, braucht genau diese eine Datei
+   * eine eigene Route mit Ablauf (`ExpirationPlugin`) oder `NetworkFirst`
+   * statt eines Platzes in dieser Liste.
+   */
   "/apple-icon.png",
 ];
 
