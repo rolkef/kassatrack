@@ -2185,7 +2185,7 @@ docker rm -f kassatrack-headercheck
 
 Expected: alle sechs Header sind vorhanden, die Richtlinie enthaelt `nonce-` und **kein** `unsafe-inline`. Zwei Aufrufe hintereinander muessen unterschiedliche Token liefern.
 
-Zusaetzlich im Browser, mit **angemeldeter Sitzung**: Startseite und Anmeldeseite oeffnen und die Konsole auf CSP-Verstoesse pruefen. In Task 6 konnte nur die 404-Seite end-to-end verifiziert werden, weil dort noch keine Anmeldung moeglich war; die Startseite blieb Schlussfolgerung aus der Build-Ausgabe. Eine statisch vorgerenderte Route kann kein Token pro Anfrage tragen und bricht dann still — die Seite laedt, reagiert aber nicht. Pruefe in der Build-Ausgabe, dass **keine** Route mehr mit `○` (statisch) markiert ist.
+Zusaetzlich im Browser, mit **angemeldeter Sitzung**: Startseite und Anmeldeseite oeffnen und die Konsole auf CSP-Verstoesse pruefen. In Task 6 konnte nur die 404-Seite end-to-end verifiziert werden, weil dort noch keine Anmeldung moeglich war; die Startseite blieb Schlussfolgerung aus der Build-Ausgabe. Eine statisch vorgerenderte Route kann kein Token pro Anfrage tragen und bricht dann still — die Seite laedt, reagiert aber nicht. Pruefe in der Build-Ausgabe, dass keine SEITE mehr mit `○` (statisch) markiert ist. Asset-Routen wie `/manifest.webmanifest` und `/apple-icon.png` duerfen statisch sein -- sie liefern kein HTML und tragen keine Skripte, die Einmal-Token brauchen.
 
 - [ ] **Step 5: Prüfen, dass keine Secrets im Repo liegen**
 
