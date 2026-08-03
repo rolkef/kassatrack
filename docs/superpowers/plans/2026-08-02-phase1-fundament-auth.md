@@ -1899,10 +1899,14 @@ export default function manifest(): MetadataRoute.Manifest {
 
 `src/app/sw.ts`:
 
+**`defaultCache` darf hier nicht verwendet werden.** Serwists Voreinstellung legt Seiten, RSC-Antworten und `/api/`-Aufrufe in den Cache — mit einem Fangnetz für alles Übrige derselben Herkunft. Der Cache-Speicher gehört der Herkunft, nicht der Sitzung: Er überlebt das Abmelden, und der Server erfährt nichts davon, wenn daraus ausgeliefert wird. Eine einmal zwischengespeicherte Verwaltungsseite läge damit noch auf dem Gerät, wenn der Zugang längst entzogen ist — also genau die Umgehung des Aussperrens, das Task 8 aufgebaut hat.
+
+Zwischengespeichert wird deshalb ausschließlich, was ohnehin öffentlich ist und sich unter seiner Adresse nie ändert. Alles andere bekommt keine Route und läuft unberührt ins Netz, als gäbe es keinen Worker.
+
 ```ts
-import { defaultCache } from "@serwist/next/worker";
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
-import { Serwist } from "serwist";
+import { CacheFirst, Serwist } from "serwist";
+import { istUnveraenderlicheDatei } from "./sw-regeln";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -1916,10 +1920,18 @@ new Serwist({
   precacheEntries: self.__SW_MANIFEST,
   skipWaiting: true,
   clientsClaim: true,
-  navigationPreload: true,
-  runtimeCaching: defaultCache,
+  // Kein navigationPreload: der Worker beantwortet keine Navigationen.
+  navigationPreload: false,
+  runtimeCaching: [
+    {
+      matcher: ({ url, sameOrigin }) => istUnveraenderlicheDatei(url, sameOrigin),
+      handler: new CacheFirst({ cacheName: "unveraenderliche-dateien" }),
+    },
+  ],
 }).addEventListeners();
 ```
+
+Die Entscheidungsregel liegt bewusst in einer eigenen Datei `src/app/sw-regeln.ts`, damit sie von außen importierbar und testbar ist — im Worker selbst wäre sie es nicht.
 
 `next.config.ts`:
 
