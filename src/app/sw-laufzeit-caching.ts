@@ -9,11 +9,15 @@ import { istUnveraenderlicheDatei } from "./sw-regeln";
  * ServiceWorkerGlobalScope voraus, die es in `bun test` nicht gibt. Diese
  * Datei konstruiert nur Werte, sie meldet nichts an.
  *
- * `tests/sw-laufzeit-caching.test.ts` prüft an genau diesem Feld, dass es
- * bei genau einer Regel bleibt und dass keine ihrer Regeln je eine
- * angemeldete Seite, eine RSC-Antwort oder eine Schnittstelle trifft — siehe
- * dort für die Begründung, warum das die eine Stelle ist, an der ein Fehler
- * kein Geschwindigkeitsproblem, sondern ein Datenleck wäre.
+ * `tests/sw-laufzeit-caching.test.ts` prüft an genau diesem Wert (isoliert
+ * importiert, nicht über `sw.ts`), dass er bei genau einer Regel bleibt und
+ * dass keine ihrer Regeln je eine angemeldete Seite, eine RSC-Antwort oder
+ * eine Schnittstelle trifft — siehe dort für die Begründung, warum das die
+ * eine Stelle ist, an der ein Fehler kein Geschwindigkeitsproblem, sondern
+ * ein Datenleck wäre. Dass `sw.ts` diesen Wert auch tatsächlich unverändert
+ * verwendet — kein Spread, keine zweite Quelle daneben —, prüft ein zweiter,
+ * eigener Test: `tests/sw-verdrahtung.test.ts`. Beide zusammen sind nötig:
+ * dieser hier kann nicht sehen, was `sw.ts` mit dem Wert anstellt.
  */
 export const laufzeitCaching: RuntimeCaching[] = [
   {

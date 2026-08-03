@@ -54,9 +54,16 @@ new Serwist({
    * und jeden Aufruf unter `/api/` ist die App also genau so schnell und
    * genau so frisch wie ohne Service Worker.
    *
-   * Dass es dabei bleibt, prüft `tests/sw-laufzeit-caching.test.ts` gegen
-   * `laufzeitCaching` selbst — nicht nur gegen `istUnveraenderlicheDatei` in
-   * Isolation, sondern gegen das Feld, das hier tatsächlich verdrahtet wird.
+   * Zwei Tests halten das fest, weil keiner allein reicht:
+   * `tests/sw-laufzeit-caching.test.ts` prüft `laufzeitCaching` selbst
+   * (isoliert importiert, nicht über diese Datei) — nicht nur gegen
+   * `istUnveraenderlicheDatei`, sondern gegen das ganze Feld. Das sagt aber
+   * nichts darüber, ob *hier* noch etwas dazukommt. Deshalb prüft
+   * `tests/sw-verdrahtung.test.ts` zusätzlich diese Datei als Quelltext: dass
+   * `runtimeCaching` eine bloße Referenz auf `laufzeitCaching` bleibt und
+   * dass hier kein Import aus `@serwist/next/worker` auftaucht. Wer diese
+   * Zeile zu `[...laufzeitCaching, ...defaultCache]` ändert, lässt den einen
+   * Test unverändert grün und den anderen rot werden.
    */
   runtimeCaching: laufzeitCaching,
 }).addEventListeners();

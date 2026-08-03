@@ -2199,6 +2199,28 @@ Expected: alle sechs Header sind vorhanden, die Richtlinie enthaelt `nonce-` und
 
 Zusaetzlich im Browser, mit **angemeldeter Sitzung**: Startseite und Anmeldeseite oeffnen und die Konsole auf CSP-Verstoesse pruefen. In Task 6 konnte nur die 404-Seite end-to-end verifiziert werden, weil dort noch keine Anmeldung moeglich war; die Startseite blieb Schlussfolgerung aus der Build-Ausgabe. Eine statisch vorgerenderte Route kann kein Token pro Anfrage tragen und bricht dann still — die Seite laedt, reagiert aber nicht. Pruefe in der Build-Ausgabe, dass keine SEITE mehr mit `○` (statisch) markiert ist. Asset-Routen wie `/manifest.webmanifest` und `/apple-icon.png` duerfen statisch sein -- sie liefern kein HTML und tragen keine Skripte, die Einmal-Token brauchen.
 
+- [ ] **Step 4c: Cache-Regeln des gebauten Service Workers pruefen**
+
+`tests/sw-laufzeit-caching.test.ts` und `tests/sw-verdrahtung.test.ts` (Task 9)
+pruefen die Cache-Regel gegen den Quelltext, bewusst ohne Bauschritt, damit
+`bun test` allein aussagekraeftig bleibt. Das deckt nicht ab, was Serwist beim
+Bau tatsaechlich in `public/sw.js` schreibt -- ein Fehler in Serwists eigener
+Buendelung oder ein Plugin, das nachtraeglich eine Regel einschleust, wuerde
+dort nicht auffallen. Diese Pruefung schliesst die Luecke: sie laeuft gegen den
+echten Bau-Output.
+
+```bash
+rm -f public/sw.js && NODE_ENV=production bun run build
+grep -o 'cacheName:"[a-zA-Z-]*"' public/sw.js | sort -u
+```
+
+Expected: genau eine Zeile, `cacheName:"unveraenderliche-dateien"`. Keine der
+folgenden Zeichenketten darf vorkommen: `pages`, `pages-rsc`,
+`pages-rsc-prefetch`, `apis`, `others` -- das sind die Cache-Namen aus
+Serwists `defaultCache` (`@serwist/next/dist/index.worker.mjs`), und ihr
+Auftauchen im gebauten Worker waere ein Wiedereinzug von Seiten-, RSC- oder
+Schnittstellen-Caching, unabhaengig davon, was der Quelltext behauptet.
+
 - [ ] **Step 5: Prüfen, dass keine Secrets im Repo liegen**
 
 Run: `git grep -nE "(GOCSPX-|sk-[A-Za-z0-9]{20,})" -- . ':!docs' || echo "sauber"`
