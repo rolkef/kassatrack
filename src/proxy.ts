@@ -11,6 +11,7 @@ export function proxy(request: NextRequest): NextResponse {
     img-src 'self' blob: data:;
     font-src 'self';
     connect-src 'self';
+    worker-src 'self';
     object-src 'none';
     base-uri 'self';
     form-action 'self';
@@ -19,6 +20,15 @@ export function proxy(request: NextRequest): NextResponse {
   `
     .replace(/\s{2,}/g, " ")
     .trim();
+
+  /*
+   * `worker-src` steht ausdrücklich da, obwohl `default-src 'self'` es scheinbar
+   * schon abdeckt. Ohne die eigene Direktive prüft der Browser die Registrierung
+   * eines Service Workers gegen `child-src` und dann gegen `script-src` — und
+   * dort steht `'strict-dynamic'`, das jede Herkunftsangabe unwirksam macht,
+   * `'self'` eingeschlossen. Die Registrierung schlüge fehl, sichtbar nur als
+   * eine Zeile in der Browser-Konsole.
+   */
 
   // Auch auf der ANFRAGE setzen: daran erkennt Next, dass es seine eigenen
   // Hydration-Skripte mit dem Token versehen soll.

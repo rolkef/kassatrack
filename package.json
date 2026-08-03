@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
+    "build": "next build --webpack",
+    "start": "next start",
+    "icons": "bun run scripts/icons-erzeugen.ts"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "1.6.25",
@@ -17,11 +18,13 @@
     "pg": "^8.22.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "serwist": "9.5.12",
     "tailwind-merge": "^3.6.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "20.11.1",
+    "@serwist/next": "9.5.12",
     "@tailwindcss/postcss": "4.3.3",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "16.3.2",
@@ -35,6 +38,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
     "happy-dom": "20.11.1",
+    "sharp": "^0.35.3",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2"
   },

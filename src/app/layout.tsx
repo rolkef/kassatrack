@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Martian_Mono, Wix_Madefor_Text } from "next/font/google";
+import { PAPIER } from "@/lib/huelle";
 import "./globals.css";
 
 /*
@@ -40,6 +41,18 @@ const zahlen = Martian_Mono({
 export const metadata: Metadata = {
   title: "KassaTrack",
   description: "Preisverfolgung für den Lebensmitteleinkauf in Österreich",
+  /*
+   * iOS liest das Manifest nur teilweise. Ohne diesen Block startet die vom
+   * Startbildschirm geöffnete App in Safari mit Adressleiste statt
+   * eigenständig. `apple-icon.png` im selben Verzeichnis hängt Next von
+   * selbst als Startbildschirm-Symbol ein.
+   */
+  appleWebApp: {
+    capable: true,
+    title: "KassaTrack",
+    // "default" färbt die Statusleiste wie die Seite — hier also Papier.
+    statusBarStyle: "default",
+  },
 };
 
 export const viewport: Viewport = {
@@ -48,7 +61,8 @@ export const viewport: Viewport = {
   // Damit env(safe-area-inset-*) unter der Home-Anzeige des iPhones greift.
   viewportFit: "cover",
   colorScheme: "light",
-  themeColor: "#f7fbfb",
+  // Muss mit `theme_color` im Manifest übereinstimmen, siehe `lib/huelle`.
+  themeColor: PAPIER,
 };
 
 export default function RootLayout({
@@ -58,7 +72,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="de"
+      lang="de-AT"
       className={`h-full antialiased ${anzeige.variable} ${text.variable} ${zahlen.variable}`}
     >
       <body className="flex min-h-full flex-col bg-hintergrund font-sans text-vordergrund">

@@ -43,3 +43,11 @@ next-env.d.ts
 
 # superpowers
 .superpowers/
+
+# Vom Bau erzeugter Service Worker (Serwist schreibt ihn nach public/)
+/public/sw.js
+/public/sw.js.map
+/public/swe-worker-*.js
+
+# Zwischenablage der Browserprüfung
+/.pruefung/

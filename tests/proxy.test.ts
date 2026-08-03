@@ -32,6 +32,24 @@ describe("Sicherheits-Header", () => {
     expect(proxy(anfrage("/anmelden")).headers.get("x-frame-options")).toBe("DENY");
   });
 
+  /*
+   * Ohne diese Zeile lässt sich der Service Worker nicht registrieren, und
+   * zwar aus einem Grund, den man der Richtlinie nicht ansieht.
+   *
+   * Für `navigator.serviceWorker.register()` prüft der Browser `worker-src`.
+   * Fehlt die Direktive, fällt er auf `child-src` und dann auf `script-src`
+   * zurück. Dort steht `'strict-dynamic'` — und `'strict-dynamic'` schaltet
+   * alle Herkunftsangaben ab, auch `'self'`. Übrig bleibt eine Liste, die den
+   * Worker nirgends erlaubt.
+   *
+   * Der Fehler tritt nur im Browser auf: der Bau gelingt, die Seite lädt, und
+   * in der Konsole steht eine einzelne Meldung.
+   */
+  it("erlaubt der Seite, ihren Service Worker zu registrieren", () => {
+    const kopf = proxy(anfrage("/")).headers.get("content-security-policy");
+    expect(kopf).toContain("worker-src 'self'");
+  });
+
   it("erlaubt keine beliebigen Inline-Skripte", () => {
     const kopf = proxy(anfrage("/")).headers.get("content-security-policy");
     expect(kopf).not.toContain("'unsafe-inline'");
