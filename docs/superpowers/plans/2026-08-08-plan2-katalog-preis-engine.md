@@ -388,7 +388,19 @@ const BEZUGSNAME: Record<Basiseinheit, string> = { G: "kg", ML: "l", STK: "Stk" 
  * eine unverständliche Eingabe kein Ausnahmefall, sondern der Normalfall ist.
  */
 export function zerlegeMenge(eingabe: string): Menge | null {
-  const treffer = eingabe.trim().toLowerCase().match(/^(-?[\d]+(?:[.,]\d+)?)\s*([a-zä]+)$/);
+  const roh = eingabe.trim().toLowerCase();
+
+  // Ein Punkt vor genau DREI Ziffern ist im deutschen Sprachraum das
+  // Tausendertrennzeichen: „1.234" heißt 1234, nicht 1,234. Diese Form wird
+  // abgelehnt statt geraten. Wer rät, liefert der einen Hälfte der Nutzer
+  // stillschweigend Zahlen, die um den Faktor 1000 daneben liegen — und nichts
+  // weiter unten kann das erkennen. Ein Punkt vor ein bis zwei Ziffern bleibt
+  // Dezimalpunkt, damit „1.5 l" weiter funktioniert.
+  if (/\d\.\d{3}(?!\d)/.test(roh)) return null;
+
+  // ö und ü gehören in die Zeichenklasse, sonst scheitert „6 Stück" — die
+  // natürliche Schreibweise — und der Eintrag `stueck` wäre unerreichbar.
+  const treffer = roh.match(/^(-?[\d]+(?:[.,]\d{1,2})?)\s*([a-zäöü]+)$/);
   if (!treffer) return null;
 
   const zahl = Number(treffer[1].replace(",", "."));
