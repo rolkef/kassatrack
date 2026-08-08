@@ -195,6 +195,50 @@ describe("entzieheZugang", () => {
     expect(await umgebung.db.select().from(session)).toEqual([]);
   });
 
+  /*
+   * Der gewöhnliche Fall „falsche Adresse erwischt": eingeladen, dann entzogen,
+   * bevor der Link geöffnet wurde. Bliebe der Token offen, versicherte die
+   * Einladungsseite der Person „ist freigeschaltet" — und der nächste
+   * Bildschirm wiese sie ab.
+   */
+  it("entwertet eine noch offene Einladung", async () => {
+    const { token } = await erzeugeEinladung(umgebung.db, {
+      email: "neu@example.at",
+      erstelltVon: "chris",
+    });
+
+    await entzieheZugang(umgebung.db, "neu@example.at");
+
+    expect(await faengtFehler(() => loeseEinladungEin(umgebung.db, token))).toBeInstanceOf(
+      EinladungUngueltig,
+    );
+  });
+
+  it("entwertet die Einladung auch bei abweichender Schreibweise im Entzug", async () => {
+    const { token } = await erzeugeEinladung(umgebung.db, {
+      email: "neu@example.at",
+      erstelltVon: "chris",
+    });
+
+    await entzieheZugang(umgebung.db, " Neu@Example.AT ");
+
+    expect(await faengtFehler(() => loeseEinladungEin(umgebung.db, token))).toBeInstanceOf(
+      EinladungUngueltig,
+    );
+  });
+
+  it("lässt die Einladungen anderer Adressen offen", async () => {
+    await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
+    const { token } = await erzeugeEinladung(umgebung.db, {
+      email: "andere@example.at",
+      erstelltVon: "chris",
+    });
+
+    await entzieheZugang(umgebung.db, "neu@example.at");
+
+    expect((await loeseEinladungEin(umgebung.db, token)).email).toBe("andere@example.at");
+  });
+
   it("lässt die Sitzungen anderer Personen unangetastet", async () => {
     await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
     await umgebung.db.insert(user).values([

@@ -112,6 +112,18 @@ beforeAll(async () => {
       user_agent text,
       user_id text not null references "user"(id) on delete cascade
     );
+    -- entzieheZugang entwertet seit Fix-Runde 2 auch noch offene Einladungen.
+    -- Diese Datei prueft daran nichts, braucht die Tabelle aber, damit der
+    -- Entzug ueberhaupt durchlaeuft.
+    create table invite (
+      id text primary key,
+      token text not null unique,
+      email text not null,
+      erstellt_von text not null,
+      erstellt_am timestamptz not null default now(),
+      gueltig_bis timestamptz not null,
+      eingeloest_am timestamptz
+    );
   `);
   auth = erzeugeAuth(umgebung.db);
 }, 120_000);

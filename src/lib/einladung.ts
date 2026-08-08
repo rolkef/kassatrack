@@ -82,10 +82,23 @@ export async function loeseEinladungEin(
  *    Anmeldung.
  * 2. **Bestehende Sitzungen löschen.** Sonst bliebe die Person bis zum Ablauf
  *    ihrer Sitzung angemeldet, obwohl der Zugang entzogen ist.
+ * 3. **Offene Einladungen entwerten.** Siehe unten.
  *
  * Scheitert Schritt 2, ist die Person trotzdem beim nächsten Anmelden draußen.
  * In der umgekehrten Reihenfolge wäre eine Teilausführung schlechter: abgemeldet,
- * aber weiterhin berechtigt, sich sofort neu anzumelden.
+ * aber weiterhin berechtigt, sich sofort neu anzumelden. Schritt 3 steht zuletzt,
+ * weil er als einziger nichts aussperrt: Ein noch offener Token käme auch für
+ * sich genommen nirgends hinein (`loeseEinladungEin` schaltet nichts frei), er
+ * ließe nur eine Seite eine Unwahrheit behaupten.
+ *
+ * **Warum Schritt 3 überhaupt nötig ist.** Wird jemand zwischen dem Erstellen
+ * der Einladung und dem Öffnen des Links entzogen — der gewöhnliche Fall
+ * „falsche Adresse erwischt" —, ist der Token weiterhin ungenutzt und nicht
+ * abgelaufen. Die Einladungsseite prüft nur ihn und schriebe der Person dann
+ * „«Adresse» ist freigeschaltet. Melde dich mit dieser Adresse an." Sie täte
+ * genau das und liefe in die Abweisung — zwei Bildschirme hintereinander, die
+ * einander widersprechen. Der Entzug bleibt damit der eine Ort, an dem „draußen"
+ * entschieden wird.
  *
  * `lower(user.email)` aus demselben Grund wie in `holeZugaenge`: Better Auth
  * schreibt Adressen selbst klein, direkt eingefügte Zeilen laufen daran aber
@@ -110,6 +123,15 @@ export async function entzieheZugang(db: ZugriffsDb, email: string): Promise<voi
       ),
     );
   }
+
+  // Als eingelöst markiert statt gelöscht: `loeseEinladungEin` wertet genau
+  // dieses Feld aus, und die Zeile bleibt als Spur erhalten, dass eingeladen
+  // wurde. Nur die noch offenen — eine bereits eingelöste Einladung trägt ihren
+  // Zeitpunkt, und der soll nicht überschrieben werden.
+  await db
+    .update(invite)
+    .set({ eingeloestAm: new Date() })
+    .where(and(eq(invite.email, normalisiert), isNull(invite.eingeloestAm)));
 }
 
 export type Zugang = {

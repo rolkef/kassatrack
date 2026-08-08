@@ -75,11 +75,46 @@ afterAll(async () => {
   await umgebung.stop();
 });
 
-mock.module("next/cache", () => ({ revalidatePath: () => {} }));
+/*
+ * Jede Attrappe ist **vollständig**: Das echte Modul wird vorher eingelesen,
+ * hineingestreut und nur dort überschrieben, wo etwas gestellt sein muss.
+ *
+ * Der Grund ist, dass `mock.module` in Bun für den **gesamten** Lauf gilt und
+ * nicht nur für diese Datei — nachgemessen, und die Sache hat an anderer Stelle
+ * schon einmal gekostet (siehe `zugangs-zeile.tsx:22-26`). Eine Attrappe, die
+ * Exporte weglässt, nimmt sie damit jeder anderen Testdatei weg. Solange
+ * niemand sie importiert, fällt das nicht auf; die erste Datei, die es tut,
+ * bekommt „undefined is not a function" an einer Stelle, die mit dieser hier
+ * nichts zu tun hat — und ob überhaupt, hängt an Buns Dateireihenfolge. Das ist
+ * die teuerste Form, die ein Testfehler annehmen kann.
+ *
+ * Zwei Fallstricke, beide nachgemessen und beide teuer:
+ *
+ * - Das echte Modul muss **vor** `mock.module` eingelesen werden. Ein
+ *   `mock.module("x", async () => ({ ...(await import("x")) }))` importiert sich
+ *   selbst, während es sich gerade ersetzt: Der Lauf bleibt hängen, ohne
+ *   Fehlermeldung.
+ * - Und `mock.module` selbst gehört `await`et, sobald die Fabrik asynchron ist
+ *   — sonst ist der Namensraum beim nächsten Import noch leer und das Modul hat
+ *   überhaupt keine Exporte mehr.
+ *
+ * Reihenfolge: erst `@/db` ersetzen, dann `@/lib/sitzung` einlesen. Nur so
+ * hängt das echte `@/lib/sitzung` an der Testdatenbank statt an der aus
+ * `tests/setup.ts`.
+ */
+const echtesCache = await import("next/cache");
+await mock.module("next/cache", () => ({ ...echtesCache, revalidatePath: () => {} }));
 
-mock.module("@/db", () => ({ db: umgebung.db as ZugriffsDb }));
+/*
+ * `@/db` bleibt ohne Streuung: Das Modul exportiert nur `db`, und genau das
+ * wird ersetzt. Wächst es je um einen zweiten Export, gehört hier dieselbe
+ * Streuung hin wie bei den anderen beiden.
+ */
+await mock.module("@/db", () => ({ db: umgebung.db as ZugriffsDb }));
 
-mock.module("@/lib/sitzung", () => ({
+const echteSitzung = await import("@/lib/sitzung");
+await mock.module("@/lib/sitzung", () => ({
+  ...echteSitzung,
   // Nur das Nachschlagen der Sitzung ist gestellt — die Rollenprüfung darunter
   // ist die echte.
   requireBetreiber: async () => {

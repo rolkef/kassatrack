@@ -35,23 +35,26 @@
 const UNVERAENDERLICHE_VERZEICHNISSE = ["/_next/static/"];
 
 /**
- * Einzelne Dateien aus `public/`, die unter festem Namen liegen.
+ * Einzelne Icons, die unter festem Namen liegen.
  *
- * Sie sind nicht gehasht, aber sie sind Teil des Precache und tragen dort eine
- * Revision aus dem Bau. Die Liste ist bewusst abgezählt statt als Endungsmuster
- * geschrieben — ein Muster wie „alles auf .png" würde auch eine Seite treffen,
- * die zufällig so endet.
+ * Die ersten drei liegen in `public/`: nicht gehasht, aber Teil des Precache,
+ * und sie tragen dort eine Revision aus dem Bau. Der vierte Eintrag ist der
+ * Sonderfall — siehe den Kommentar bei ihm. Die Liste ist bewusst abgezählt
+ * statt als Endungsmuster geschrieben — ein Muster wie „alles auf .png" würde
+ * auch eine Seite treffen, die zufällig so endet.
  */
 const UNVERAENDERLICHE_DATEIEN = [
   "/icon-192.png",
   "/icon-512.png",
   "/icon-maskierbar-512.png",
   /*
-   * Einziger Sonderfall: `apple-icon.png` trägt keinen Hash im Namen (Next
-   * hängt es unter festem Pfad ein) und wird von `CacheFirst` ohne Ablauf
-   * bedient. Ändert sich das Icon, sieht eine bereits installierte App das
-   * nie — `CacheFirst` liefert die alte Datei, solange der Cache-Eintrag
-   * besteht. Bewusst hingenommen: ein einzelnes, praktisch unveränderliches
+   * Einziger Sonderfall: `apple-icon.png` liegt als Metadaten-Datei des App
+   * Routers unter `src/app/`, nicht in `public/` — es ist deshalb **nicht** im
+   * Precache und hat auch keine Revision aus dem Bau. Es trägt zudem keinen
+   * Hash im Namen (Next hängt es unter festem Pfad ein) und wird hier von
+   * `CacheFirst` ohne Ablauf bedient. Ändert sich das Icon, sieht eine bereits
+   * installierte App das nie — `CacheFirst` liefert die alte Datei, solange der
+   * Cache-Eintrag besteht. Bewusst hingenommen: ein einzelnes, praktisch unveränderliches
    * Bild. Ändert sich das Icon künftig doch, braucht genau diese eine Datei
    * eine eigene Route mit Ablauf (`ExpirationPlugin`) oder `NetworkFirst`
    * statt eines Platzes in dieser Liste.

@@ -87,27 +87,42 @@ describe("istEmailZugelassen", () => {
   });
 });
 
+/*
+ * Geprüft wird der **Name** der verletzten Bedingung, nicht bloß, dass
+ * irgendetwas geworfen wurde.
+ *
+ * Ein `expect(fehler).toBeDefined()` wäre auch dann grün, wenn das Einfügen aus
+ * einem völlig anderen Grund scheitert — ein doppelter Primärschlüssel, eine
+ * umbenannte Spalte, eine fehlende Tabelle. Der Test bestätigte dann eine
+ * Absicherung, die es gar nicht mehr gibt — nachgestellt und bestätigt: mit
+ * einem doppelten Primärschlüssel meldet Postgres `allowed_email_pkey`, und
+ * `toBeDefined()` war damit grün. Den Namen zu prüfen kostet nichts und macht
+ * aus dem Test eine Aussage.
+ */
 describe("allowed_email-Constraints", () => {
+  /**
+   * Führt das Einfügen aus und liefert den Namen der verletzten Bedingung.
+   *
+   * Der Umweg über `cause`: Drizzle verpackt den Fehler von `pg` in einen
+   * `DrizzleQueryError` (Feld `query`, `params`, `cause`). Der Name der
+   * Bedingung steht am ursprünglichen Fehler darunter, nicht am äußeren.
+   *
+   * Kein `.rejects`: siehe Kommentar bei `pruefeZugang` unten — hier fangen wir
+   * den Fehler selbst ein, statt ihn `expect().rejects` prüfen zu lassen.
+   */
+  async function verletzteBedingung(email: string): Promise<string | undefined> {
+    const fehler = await faengtFehler(() =>
+      umgebung.db.insert(allowedEmail).values({ id: "1", email }),
+    );
+    return (fehler as { cause?: { constraint?: string } } | undefined)?.cause?.constraint;
+  }
+
   it("lehnt eine leere E-Mail-Adresse ab", async () => {
-    // Kein `.rejects`: siehe Kommentar bei pruefeZugang oben — hier fangen wir
-    // den Fehler selbst ein, statt ihn `expect().rejects` prüfen zu lassen.
-    let fehler: unknown;
-    try {
-      await umgebung.db.insert(allowedEmail).values({ id: "1", email: "" });
-    } catch (e) {
-      fehler = e;
-    }
-    expect(fehler).toBeDefined();
+    expect(await verletzteBedingung("")).toBe("allowed_email_nicht_leer");
   });
 
   it("lehnt eine nicht kleingeschriebene E-Mail-Adresse ab", async () => {
-    let fehler: unknown;
-    try {
-      await umgebung.db.insert(allowedEmail).values({ id: "1", email: "Christopher@Example.AT" });
-    } catch (e) {
-      fehler = e;
-    }
-    expect(fehler).toBeDefined();
+    expect(await verletzteBedingung("Christopher@Example.AT")).toBe("allowed_email_klein");
   });
 });
 

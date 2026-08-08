@@ -20,12 +20,13 @@ export async function register() {
 
   /*
    * Bewusst **ohne** `await`: Next wartet `register()` ab, bevor es Anfragen
-   * annimmt. Ein `await` hier hinge also der Startbereitschaft an einer
-   * Datenbankverbindung — und der Pool in `src/db/index.ts` wartet ohne
-   * `connectionTimeoutMillis` unbegrenzt. Auf Coolify startet der App-Container
-   * regelmäßig, bevor Postgres Verbindungen annimmt; ein Postgres, das nicht
-   * ablehnt, sondern schweigt, ließe die Instanz dann nie bereit werden. Den
-   * Fehler abzufangen hülfe nichts, weil das Warten selbst das Problem ist.
+   * annimmt. Ein `await` hier hinge also die Startbereitschaft an eine
+   * Datenbankverbindung. Der Pool in `src/db/index.ts` ist zwar auf zehn
+   * Sekunden begrenzt (`connectionTimeoutMillis`), das hilft hier aber nichts:
+   * Auf Coolify startet der App-Container regelmäßig, bevor Postgres
+   * Verbindungen annimmt, und dann verzögert jeder Versuch die Bereitschaft um
+   * seine volle Wartezeit — für eine Aufgabe, die niemand erwartet. Den Fehler
+   * abzufangen hülfe nichts, weil das Warten selbst das Problem ist.
    *
    * Aufräumen ist Hausarbeit und darf im Hintergrund passieren.
    * `raeumeAbweisungenAuf` wirft nie, es kann hier also nichts unbehandelt

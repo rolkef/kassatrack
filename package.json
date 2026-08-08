@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
     "icons": "bun run scripts/icons-erzeugen.ts"
   },
   "dependencies": {
