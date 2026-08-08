@@ -49,5 +49,8 @@ next-env.d.ts
 /public/sw.js.map
 /public/swe-worker-*.js
 
+# Vom Docker-Build erzeugtes Bündel des Migrationsskripts (siehe Dockerfile)
+/scripts/migrieren.js
+
 # Zwischenablage der Browserprüfung
 /.pruefung/

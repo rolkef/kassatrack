@@ -79,6 +79,48 @@ export function erzeugeAuth(datenbank: ZugriffsDb) {
      */
     rateLimit: { enabled: true, window: 60, max: 20 },
 
+    /*
+     * Herkunft für die Begrenzung oben — ausdrücklich, nicht der Voreinstellung
+     * überlassen. Ohne diesen Block nimmt Better Auth zwar ohnehin schon
+     * `x-forwarded-for` (das steht so in `DEFAULT_IP_HEADERS`), aber unbenannt
+     * lassen hieße, sich auf einen Vorgabewert zu verlassen, der sich mit
+     * einer künftigen Better-Auth-Version ändern könnte, ohne dass hier
+     * jemand hinschaut.
+     *
+     * Geprüft, nicht angenommen: Coolifys mitgelieferter Traefik setzt beim
+     * Anlegen der Ressource **kein** `forwardedHeaders.trustedIPs` und kein
+     * `insecure` (nachgesehen in `bootstrap/helpers/proxy.php` des
+     * coollabsio/coolify-Repos — dort ist `trustedIPs` ein optionaler
+     * Zusatzbefehl, den man selbst für z. B. Cloudflare einträgt, kein
+     * Standardwert). Traefiks `XForwarded`-Middleware
+     * (`pkg/middlewares/forwardedheaders/forwarded_header.go`) verwirft ohne
+     * `insecure`/`trustedIPs` jeden aus dem Netz mitgebrachten
+     * `X-Forwarded-For` und setzt ihn aus der tatsächlichen Verbindung neu —
+     * bei einer normalen Coolify-Installation ohne vorgeschaltetes CDN ist das
+     * also immer genau ein Wert: die echte Adresse der anfragenden Person.
+     * Genau dafür reicht Better Auths Vorgabe (`ipAddressHeaders` ohne
+     * `trustedProxies`) bereits aus — sie vertraut einem Kopf nur, wenn er
+     * exakt einen Wert trägt.
+     *
+     * `trustedProxies` bleibt deshalb hier bewusst leer. Ein Eintrag wäre erst
+     * nötig, sobald ein zusätzlicher Sprung vor Traefik dazukäme (etwa
+     * Cloudflare) — dann müsste sowohl Traefik (`trustedIPs` für den
+     * vorgeschalteten Dienst) als auch dieser Block (`trustedProxies` für
+     * dessen Adressraum) angepasst werden, sonst würde die neue Herkunft als
+     * Client-Adresse durchgehen und alle Anfragen einer gemeinsamen Bucket
+     * zuordnen.
+     *
+     * Unverändert bleibt dabei das Speicherproblem: `rateLimit` oben nutzt die
+     * Vorgabe `storage: "memory"` (siehe `docs/deployment-coolify.md`) — pro
+     * Replik ein eigener Zähler, das Gesamtbudget wächst also mit der
+     * Replik-Anzahl.
+     */
+    advanced: {
+      ipAddress: {
+        ipAddressHeaders: ["x-forwarded-for"],
+      },
+    },
+
     socialProviders: {
       google: {
         clientId: env.GOOGLE_CLIENT_ID,

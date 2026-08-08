@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.superpowers
+.pruefung
+docs
+tests
+*.md
+.env*
+compose*.yaml
+tsconfig.tsbuildinfo
+next-env.d.ts
