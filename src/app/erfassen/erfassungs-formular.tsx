@@ -221,7 +221,7 @@ export function ErfassungsFormular({
               beiVerlassen={() => setPreisBeruehrt(true)}
               fehler={
                 preisBeruehrt && preis.trim() !== "" && preisZerlegt === null
-                  ? "Ein Betrag über null, höchstens zwei Kommastellen."
+                  ? "Zwischen 0,01 und 99.999,99, höchstens zwei Kommastellen."
                   : null
               }
               required

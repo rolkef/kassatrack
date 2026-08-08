@@ -75,14 +75,40 @@ export function zerlegeMenge(eingabe: string): Menge | null {
  * Null und negative Beträge sind ebenfalls `null`: Aus ihnen entsteht kein
  * Grundpreis, und die Datenbank lehnt sie über `preis_positiv` ohnehin ab —
  * dort aber als technischer Fehler statt als Satz.
+ *
+ * Die Obergrenze ist keine Willkür, sondern die Datenbank: `einzelpreis` und
+ * `zeilensumme` sind `numeric(10,4)` und müssen betragsmäßig unter 10^6
+ * bleiben. Ohne die Grenze käme `"1234567"` bis in die Schreibphase durch und
+ * liefe dort in einen `numeric field overflow` — nachdem Produkt und
+ * Ketten-Zuordnung bereits angelegt wären. `PREIS_OBERGRENZE` liegt eine
+ * Größenordnung darunter, weil ein Lebensmittelpreis über 100.000 € ohnehin
+ * ein Tippfehler ist.
  */
+export const PREIS_OBERGRENZE = 100_000;
+
 export function zerlegePreis(eingabe: string): number | null {
   const bereinigt = eingabe.replace(/[\s€]/g, "").replace(",", ".");
   if (!/^\d+(\.\d{1,2})?$/.test(bereinigt)) return null;
 
   const zahl = Number(bereinigt);
-  return Number.isFinite(zahl) && zahl > 0 ? zahl : null;
+  return Number.isFinite(zahl) && zahl > 0 && zahl < PREIS_OBERGRENZE ? zahl : null;
 }
+
+/**
+ * Obergrenze für den Grundpreis.
+ *
+ * Ein Grundpreis landet in zwei verschieden weiten Spalten: als
+ * `price_observation.grundpreis` in `numeric(12,4)` (unter 10^8) und bei einer
+ * Aktion als `offer.preis` in `numeric(10,4)` (unter 10^6). Maßgeblich ist die
+ * engere der beiden — sonst hinge es an der Preisart, ob eine Eingabe
+ * durchgeht, und eine Aktion liefe in einen Überlauf, wo derselbe Normalpreis
+ * angenommen würde.
+ *
+ * Erreichbar ist die Grenze durchaus: `PREIS_OBERGRENZE` auf ein Gramm ergäbe
+ * fast 100 Millionen je Kilo. Eine Ware für eine Million Euro je Kilo ist
+ * ohnehin ein Tippfehler.
+ */
+export const GRUNDPREIS_OBERGRENZE = 1_000_000;
 
 /**
  * Preis je Kilogramm, Liter oder Stück.

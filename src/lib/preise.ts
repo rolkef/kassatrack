@@ -4,7 +4,7 @@ import { storeProduct } from "@/db/schema/katalog";
 import { offer, priceObservation, type Preisart, type Quelle } from "@/db/schema/preise";
 import { holeKetten, type Kette } from "@/lib/katalog";
 import { median } from "@/lib/median";
-import type { ZugriffsDb } from "@/lib/zugriff";
+import type { DbOderTransaktion } from "@/lib/zugriff";
 
 /** Wie weit zurück eine Beobachtung noch als aussagekräftig gilt. */
 export const BEOBACHTUNGSFENSTER_TAGE = 180;
@@ -28,7 +28,7 @@ export type PreisZeile = {
 };
 
 export async function schreibeBeobachtung(
-  db: ZugriffsDb,
+  db: DbOderTransaktion,
   eingabe: {
     storeProductId: string;
     chainId: string;
@@ -83,8 +83,52 @@ export async function schreibeBeobachtung(
   });
 }
 
+/**
+ * Trägt eine laufende Aktion ein.
+ *
+ * Ohne diese Zeile bliebe eine erfasste Aktion für die ganze App unsichtbar:
+ * `holePreisMatrix` nimmt den Referenzpreis aus den Beobachtungen und schließt
+ * dort `PROMO` ausdrücklich aus — richtig, denn eine Aktion darf den
+ * Normalpreis nicht verschieben. Den laufenden Aktionspreis liest es dagegen
+ * ausschließlich aus **dieser** Tabelle. Wer bei Hofer eine Aktion erfasst und
+ * nur eine Beobachtung schreibt, hat also in beide Richtungen nichts erreicht.
+ *
+ * Die Zeitraumprüfung steht hier und nicht nur in der Datenbank: Die Bedingung
+ * `offer_zeitraum` würde einen verdrehten Zeitraum zwar ebenfalls ablehnen,
+ * aber als technischen Fehler mitten in einer Transaktion. Ein Aufrufer soll
+ * am Namen der Funktion ablesen können, was sie verlangt.
+ */
+export async function schreibeAngebot(
+  db: DbOderTransaktion,
+  eingabe: {
+    storeProductId: string;
+    preis: number;
+    gueltigVon: Date;
+    gueltigBis: Date;
+    quelle: Quelle;
+    bedingung?: string | null;
+  },
+): Promise<void> {
+  if (eingabe.gueltigBis <= eingabe.gueltigVon) {
+    throw new Error(
+      `Ein Angebot muss enden, nachdem es begonnen hat — ` +
+        `${eingabe.gueltigVon.toISOString()} bis ${eingabe.gueltigBis.toISOString()}.`,
+    );
+  }
+
+  await db.insert(offer).values({
+    id: randomUUID(),
+    storeProductId: eingabe.storeProductId,
+    preis: eingabe.preis.toFixed(4),
+    gueltigVon: eingabe.gueltigVon,
+    gueltigBis: eingabe.gueltigBis,
+    bedingung: eingabe.bedingung ?? null,
+    quelle: eingabe.quelle,
+  });
+}
+
 /** Referenzpreis und aktueller Bestpreis, eine Zeile je Kette. */
-export async function holePreisMatrix(db: ZugriffsDb, productId: string): Promise<PreisZeile[]> {
+export async function holePreisMatrix(db: DbOderTransaktion, productId: string): Promise<PreisZeile[]> {
   const ketten = await holeKetten(db);
   const grenze = new Date(Date.now() - BEOBACHTUNGSFENSTER_TAGE * 86_400_000);
   const jetzt = new Date();

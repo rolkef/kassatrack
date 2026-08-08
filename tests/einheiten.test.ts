@@ -131,6 +131,24 @@ describe("zerlegePreis", () => {
     expect(zerlegePreis("teuer")).toBeNull();
   });
 
+  /*
+   * Die Obergrenze ist die Datenbank: `einzelpreis` und `zeilensumme` sind
+   * `numeric(10,4)`. Ohne sie käme „1234567" bis in die Schreibphase durch und
+   * liefe dort in einen Überlauf — nachdem Produkt und Ketten-Zuordnung schon
+   * angelegt wären.
+   */
+  it("nimmt einen Betrag knapp unter der Obergrenze an", () => {
+    expect(zerlegePreis("99999,99")).toBeCloseTo(99999.99, 4);
+  });
+
+  it("lehnt einen Betrag an der Obergrenze ab", () => {
+    expect(zerlegePreis("100000")).toBeNull();
+  });
+
+  it("lehnt einen Betrag jenseits der Obergrenze ab", () => {
+    expect(zerlegePreis("1234567")).toBeNull();
+  });
+
   it("lehnt eine leere Eingabe ab", () => {
     expect(zerlegePreis("")).toBeNull();
   });

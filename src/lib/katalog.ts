@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { chain, product, storeProduct } from "@/db/schema/katalog";
 import type { Basiseinheit } from "@/lib/einheiten";
-import type { ZugriffsDb } from "@/lib/zugriff";
+import type { DbOderTransaktion } from "@/lib/zugriff";
 
 export type Kette = { id: string; name: string; kuerzel: string };
 
@@ -22,7 +22,7 @@ export const KETTEN = [
 ] as const;
 
 /** Legt fehlende Ketten an. Mehrfach aufrufbar. */
-export async function legeKettenAn(db: ZugriffsDb): Promise<void> {
+export async function legeKettenAn(db: DbOderTransaktion): Promise<void> {
   for (const eintrag of KETTEN) {
     await db
       .insert(chain)
@@ -31,7 +31,7 @@ export async function legeKettenAn(db: ZugriffsDb): Promise<void> {
   }
 }
 
-export async function holeKetten(db: ZugriffsDb): Promise<Kette[]> {
+export async function holeKetten(db: DbOderTransaktion): Promise<Kette[]> {
   return db
     .select({ id: chain.id, name: chain.name, kuerzel: chain.kuerzel })
     .from(chain)
@@ -47,7 +47,7 @@ export type Produkt = {
 };
 
 export async function legeProduktAn(
-  db: ZugriffsDb,
+  db: DbOderTransaktion,
   eingabe: { name: string; marke?: string | null; menge: number; einheit: Basiseinheit },
 ): Promise<Produkt> {
   const [zeile] = await db
@@ -89,7 +89,7 @@ export async function legeProduktAn(
  * überstimmen, ohne gegen eine Bedingung zu laufen.
  */
 export async function findeProdukt(
-  db: ZugriffsDb,
+  db: DbOderTransaktion,
   eingabe: { name: string; marke?: string | null; menge: number; einheit: Basiseinheit },
 ): Promise<Produkt | null> {
   const name = eingabe.name.trim().toLowerCase();
@@ -135,7 +135,7 @@ export async function findeProdukt(
  * dann nichts zurückgibt.
  */
 export async function sichereKettenProdukt(
-  db: ZugriffsDb,
+  db: DbOderTransaktion,
   eingabe: { chainId: string; productId: string },
 ): Promise<string> {
   const suche = () =>
@@ -171,7 +171,7 @@ export async function sichereKettenProdukt(
   return nachgereicht.id;
 }
 
-export async function holeProdukt(db: ZugriffsDb, id: string): Promise<Produkt | null> {
+export async function holeProdukt(db: DbOderTransaktion, id: string): Promise<Produkt | null> {
   const [zeile] = await db
     .select({
       id: product.id,

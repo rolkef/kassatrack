@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { legeKettenAn } from "@/lib/katalog";
+import { bestesAngebot, holePreisMatrix } from "@/lib/preise";
 import type { ZugriffsDb } from "@/lib/zugriff";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
 import { faengtFehler } from "./helfer/fehler";
@@ -84,7 +85,9 @@ const gueltig = {
   preisart: "NORMAL",
 };
 
-async function anzahl(tabelle: "price_observation" | "product" | "store_product"): Promise<number> {
+async function anzahl(
+  tabelle: "price_observation" | "product" | "store_product" | "offer",
+): Promise<number> {
   const ergebnis = await umgebung.db.execute(
     sql`select count(*)::int as n from ${sql.identifier(tabelle)}`,
   );
@@ -92,15 +95,21 @@ async function anzahl(tabelle: "price_observation" | "product" | "store_product"
 }
 
 /** Nach jeder Abweisung muss **alles** unberührt sein, nicht nur die Beobachtung. */
-async function nichtsAngelegt(): Promise<{ beobachtungen: number; produkte: number; zuordnungen: number }> {
+async function nichtsAngelegt(): Promise<{
+  beobachtungen: number;
+  produkte: number;
+  zuordnungen: number;
+  angebote: number;
+}> {
   return {
     beobachtungen: await anzahl("price_observation"),
     produkte: await anzahl("product"),
     zuordnungen: await anzahl("store_product"),
+    angebote: await anzahl("offer"),
   };
 }
 
-const UNBERUEHRT = { beobachtungen: 0, produkte: 0, zuordnungen: 0 };
+const UNBERUEHRT = { beobachtungen: 0, produkte: 0, zuordnungen: 0, angebote: 0 };
 
 beforeEach(async () => {
   // `cascade` wegen `product_ean`: Die Tabelle zeigt auf `product` und wird
@@ -268,6 +277,56 @@ describe("erfasse", () => {
     expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
   });
 
+  /*
+   * Eine Aktion, die gestern endete, hilft beim Vergleich nicht — und die
+   * Angebotszeile liefe von jetzt bis gestern gegen die Bedingung
+   * `offer_zeitraum`. Ohne diese Prüfung bekäme der Nutzer statt eines Satzes
+   * einen technischen Fehler.
+   */
+  it("weist ein Aktionsende in der Vergangenheit ab, ohne etwas anzulegen", async () => {
+    const ergebnis = await erfasse(
+      undefined,
+      formular({ ...gueltig, preisart: "PROMO", gueltigBis: "2020-01-01" }),
+    );
+
+    expect(ergebnis.art).toBe("fehler");
+    expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
+  });
+
+  it("weist einen Preis jenseits der Datenbankgrenze ab, ohne etwas anzulegen", async () => {
+    /*
+     * `einzelpreis` ist `numeric(10,4)` und muss betragsmäßig unter 10^6
+     * bleiben. Ohne die Grenze in `zerlegePreis` käme diese Eingabe bis in die
+     * Schreibphase durch: Produkt und Ketten-Zuordnung wären angelegt, und erst
+     * dann liefe der Einfügevorgang in einen `numeric field overflow`. Die
+     * Oberfläche riete dann „Versuch es noch einmal" — zu etwas, das jedes Mal
+     * identisch scheitert.
+     */
+    const ergebnis = await erfasse(undefined, formular({ ...gueltig, preis: "1234567" }));
+
+    expect(ergebnis.art).toBe("fehler");
+    expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
+  });
+
+  it("nimmt einen Preis knapp unter der Grenze an", async () => {
+    const ergebnis = await erfasse(undefined, formular({ ...gueltig, preis: "99999,99" }));
+
+    expect(ergebnis.art).toBe("erfolg");
+  });
+
+  it("weist einen Grundpreis jenseits der Datenbankgrenze ab, ohne etwas anzulegen", async () => {
+    // Beide Werte für sich sind zulässig — erst ihr Verhältnis sprengt
+    // `grundpreis numeric(12,4)`: 99.999,99 € auf ein Gramm sind knapp
+    // 100 Millionen je Kilo.
+    const ergebnis = await erfasse(
+      undefined,
+      formular({ ...gueltig, preis: "99999,99", menge: "1 g" }),
+    );
+
+    expect(ergebnis.art).toBe("fehler");
+    expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
+  });
+
   it("verlangt eine Anmeldung", async () => {
     angemeldet = false;
 
@@ -275,5 +334,130 @@ describe("erfasse", () => {
 
     expect(fehler).toBeDefined();
     expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
+  });
+});
+
+/*
+ * Der Grund, warum jemand „Aktion" ankreuzt: Er will sehen, dass diese Kette
+ * heute gewinnt.
+ *
+ * Bis zur Fixrunde 1 schrieb die Erfassung dafür nur eine Beobachtung mit
+ * `preisart = 'PROMO'` — und die liest in Plan 2 niemand. `holePreisMatrix`
+ * schließt `PROMO` beim Referenzpreis ausdrücklich aus und nimmt den laufenden
+ * Aktionspreis allein aus `offer`. Die Aktion war damit schreibgeschützt ins
+ * Leere gelaufen, ohne dass die Bestätigung sich von einer wirksamen
+ * unterschieden hätte.
+ */
+describe("erfasste Aktion", () => {
+  const aktion = { ...gueltig, preisart: "PROMO", gueltigBis: "2099-12-31" };
+
+  it("schreibt neben der Beobachtung ein Angebot", async () => {
+    const ergebnis = await erfasse(undefined, formular(aktion));
+
+    expect(ergebnis.art).toBe("erfolg");
+    expect(await anzahl("offer")).toBe(1);
+    expect(await anzahl("price_observation")).toBe(1);
+  });
+
+  /*
+   * Der Betrag im Angebot ist der **Grundpreis**, nicht der Regalpreis.
+   * `holePreisMatrix` vergleicht ihn direkt mit dem Referenzpreis, und der ist
+   * der Median über `price_observation.grundpreis` — also €/kg. Stünde hier
+   * 2,49 statt 9,96, sähe jede Aktion gegen jeden Normalpreis wie ein
+   * Jahrhundertangebot aus.
+   */
+  it("legt den Grundpreis ins Angebot, nicht den Regalpreis", async () => {
+    await erfasse(undefined, formular(aktion));
+
+    const zeilen = await umgebung.db.execute(sql`
+      select preis, quelle, gueltig_von, gueltig_bis from offer
+    `);
+    const zeile = (zeilen.rows as Record<string, string>[])[0];
+    expect(Number(zeile.preis)).toBeCloseTo(9.96, 4);
+    expect(zeile.quelle).toBe("MANUAL");
+    expect(new Date(zeile.gueltig_von).getTime()).toBeLessThanOrEqual(Date.now());
+    expect(new Date(zeile.gueltig_bis).getFullYear()).toBe(2099);
+  });
+
+  it("schreibt ohne Aktion kein Angebot", async () => {
+    await erfasse(undefined, formular(gueltig));
+
+    expect(await anzahl("offer")).toBe(0);
+  });
+
+  it("schreibt für Treuekarte und Mengenrabatt kein Angebot", async () => {
+    // Beide sind an eine Bedingung geknüpft, die nicht für jeden gilt. Sie als
+    // laufenden Bestpreis auszugeben, wäre eine Aussage über einen Preis, den
+    // man an der Kassa womöglich nicht bekommt.
+    await erfasse(undefined, formular({ ...gueltig, preisart: "LOYALTY" }));
+    await erfasse(undefined, formular({ ...gueltig, preisart: "MULTIBUY" }));
+
+    expect(await anzahl("price_observation")).toBe(2);
+    expect(await anzahl("offer")).toBe(0);
+  });
+
+  /*
+   * Der eigentliche Zweck, von außen geprüft: nicht „steht eine Zeile in
+   * `offer`", sondern „gewinnt Hofer heute den Vergleich". Ohne die
+   * Angebotszeile bliebe Hofer ohne jeden Bestpreis, und Spar gewönne mit
+   * seinem Normalpreis.
+   */
+  it("lässt die Kette mit der Aktion den heutigen Bestpreis gewinnen", async () => {
+    await erfasse(undefined, formular({ ...gueltig, kette: "spar", preis: "2,49" }));
+    const erfasstesProdukt = await erfasse(
+      undefined,
+      formular({ ...aktion, kette: "hofer", preis: "1,49" }),
+    );
+    expect(erfasstesProdukt.art).toBe("erfolg");
+    if (erfasstesProdukt.art !== "erfolg") return;
+
+    const zeilen = await holePreisMatrix(umgebung.db, erfasstesProdukt.produktId);
+    const hofer = zeilen.find((z) => z.kette.kuerzel === "hofer");
+    const spar = zeilen.find((z) => z.kette.kuerzel === "spar");
+
+    // Der Aktionspreis ist der Grundpreis: 1,49 € je 250 g sind 5,96 €/kg.
+    expect(hofer?.aktion?.preis).toBeCloseTo(5.96, 4);
+    expect(hofer?.bestpreis).toBeCloseTo(5.96, 4);
+    // Die Aktion verschiebt den Referenzpreis nicht — Hofer hat gar keinen.
+    expect(hofer?.referenzpreis).toBeNull();
+    expect(spar?.bestpreis).toBeCloseTo(9.96, 4);
+
+    expect(bestesAngebot(zeilen).heuteSieger?.kette.kuerzel).toBe("hofer");
+    // Langfristig gewinnt weiterhin Spar: Hofer hat keinen Normalpreis.
+    expect(bestesAngebot(zeilen).referenzSieger?.kette.kuerzel).toBe("spar");
+  });
+
+  /*
+   * Beobachtung und Angebot müssen gemeinsam gelingen oder gemeinsam
+   * ausbleiben. Scheiterte das Angebot, nachdem die Beobachtung steht, meldete
+   * die Oberfläche „nicht gespeichert", während der Preis liegt — der Nutzer
+   * schickte noch einmal und verschöbe den Median dieser Kette.
+   *
+   * Der Fehler wird bewusst eingebaut: eine Bedingung, an der genau dieser
+   * Angebotspreis scheitert. Anders ließe sich ein Abbruch zwischen zwei
+   * Schreibvorgängen nicht herbeiführen.
+   */
+  it("nimmt bei einem gescheiterten Angebot auch die Beobachtung zurück", async () => {
+    await umgebung.db.execute(sql`
+      alter table offer add constraint offer_pruefsperre check (preis <> 9.9600)
+    `);
+
+    try {
+      const ergebnis = await erfasse(undefined, formular(aktion));
+
+      expect(ergebnis.art).toBe("fehler");
+      expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
+    } finally {
+      await umgebung.db.execute(sql`alter table offer drop constraint offer_pruefsperre`);
+    }
+  });
+
+  it("schreibt nach dem Zurücknehmen beim nächsten Versuch wieder normal", async () => {
+    // Belegt, dass die Transaktion sauber zurückgerollt und nicht bloß
+    // abgebrochen wurde — die Verbindung muss danach weiter benutzbar sein.
+    const ergebnis = await erfasse(undefined, formular(aktion));
+
+    expect(ergebnis.art).toBe("erfolg");
+    expect(await anzahl("offer")).toBe(1);
   });
 });

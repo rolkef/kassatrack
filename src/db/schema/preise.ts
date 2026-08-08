@@ -73,8 +73,13 @@ export const priceObservation = pgTable(
  *
  * Bewusst getrennt von den Beobachtungen: Eine Beobachtung ist etwas, das
  * bereits bezahlt wurde. Eine Aktion ist eine Ankündigung für die Zukunft.
- * Erst Plan 3 füllt diese Tabelle; sie entsteht hier, weil die Bestpreis-Logik
- * sie sonst nicht abfragen könnte.
+ *
+ * Gefüllt wird sie seit Task 7 von der manuellen Erfassung: Wer „Aktion"
+ * ankreuzt, erzeugt neben der Beobachtung eine Zeile hier. Ohne die bliebe die
+ * Aktion für die ganze App unsichtbar, denn `holePreisMatrix` schließt `PROMO`
+ * bei den Beobachtungen aus und liest den laufenden Aktionspreis allein aus
+ * dieser Tabelle. Plan 3 füllt sie zusätzlich aus Ketten-Schnittstellen und
+ * Flugblättern — `quelle` sagt, woher eine Zeile stammt.
  */
 export const offer = pgTable(
   "offer",
