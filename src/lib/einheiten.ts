@@ -21,6 +21,7 @@ const EINHEITEN: Record<string, { einheit: Basiseinheit; faktor: number }> = {
   l: { einheit: "ML", faktor: 1000 },
   stk: { einheit: "STK", faktor: 1 },
   stueck: { einheit: "STK", faktor: 1 },
+  stück: { einheit: "STK", faktor: 1 },
   st: { einheit: "STK", faktor: 1 },
 };
 
@@ -34,20 +35,37 @@ const BEZUGSNAME: Record<Basiseinheit, string> = { G: "kg", ML: "l", STK: "Stk" 
  *
  * Liefert `null` statt zu werfen, weil das hier ein Benutzereingabefeld ist und
  * eine unverständliche Eingabe kein Ausnahmefall, sondern der Normalfall ist.
+ *
+ * Lehnt mehrdeutige Dezimaltrennzeichen ab: Ein Punkt mit exakt drei nachfolgenden
+ * Ziffern ist die deutsche Tausender-Formatierung (1.234 = 1234), nicht ein Dezimaltrennzeichen.
  */
 export function zerlegeMenge(eingabe: string): Menge | null {
-  const treffer = eingabe.trim().toLowerCase().match(/^(-?[\d]+(?:[.,]\d+)?)\s*([a-zä]+)$/);
+  const treffer = eingabe.trim().toLowerCase().match(/^(-?[\d]+(?:[.,]\d+)?)\s*([a-zäöü]+)$/);
   if (!treffer) return null;
 
-  const zahl = Number(treffer[1].replace(",", "."));
+  let zahlString = treffer[1];
+
+  // Lehne mehrdeutige Punkte ab: Punkt mit genau 3 Ziffern dahinter (z. B. 1.234, 10.000)
+  if (/\.\d{3}$/.test(zahlString)) {
+    return null;
+  }
+
+  const zahl = Number(zahlString.replace(",", "."));
   const gefunden = EINHEITEN[treffer[2]];
   if (!gefunden || !Number.isFinite(zahl) || zahl <= 0) return null;
 
   return { wert: Math.round(zahl * gefunden.faktor), einheit: gefunden.einheit };
 }
 
-/** Preis je Kilogramm, Liter oder Stück. */
-export function grundpreis(gesamtpreis: number, menge: Menge): number {
+/**
+ * Preis je Kilogramm, Liter oder Stück.
+ *
+ * Liefert `null` wenn Gesamtpreis null oder negativ ist, oder wenn die Menge null oder negativ ist.
+ * Diese Fälle sind Programmfehler (keine Benutzereingaben) und sollten sofort auffallen.
+ */
+export function grundpreis(gesamtpreis: number, menge: Menge): number | null {
+  if (!Number.isFinite(gesamtpreis) || gesamtpreis <= 0) return null;
+  if (!Number.isFinite(menge.wert) || menge.wert <= 0) return null;
   return (gesamtpreis / menge.wert) * BEZUG[menge.einheit];
 }
 

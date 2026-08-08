@@ -36,6 +36,32 @@ describe("zerlegeMenge", () => {
     expect(zerlegeMenge("0 g")).toBeNull();
     expect(zerlegeMenge("-5 g")).toBeNull();
   });
+
+  it("lehnt mehrdeutige Dezimaltrennzeichen ab (Punkt mit genau 3 Ziffern)", () => {
+    expect(zerlegeMenge("1.234 g")).toBeNull();
+    expect(zerlegeMenge("10.000 g")).toBeNull();
+    expect(zerlegeMenge("2.500 g")).toBeNull();
+  });
+
+  it("akzeptiert Punkt mit ein oder zwei Ziffern als Dezimaltrennzeichen", () => {
+    expect(zerlegeMenge("1.5 l")).toEqual({ wert: 1500, einheit: "ML" });
+    expect(zerlegeMenge("1.25 l")).toEqual({ wert: 1250, einheit: "ML" });
+  });
+
+  it("versteht Komma als Dezimaltrennzeichen auch bei mehrstelliger Vorkommazahl", () => {
+    expect(zerlegeMenge("1,234 g")).toEqual({ wert: 1, einheit: "G" });
+  });
+
+  it("versteht Stück mit vollständiger Schreibweise", () => {
+    expect(zerlegeMenge("6 Stück")).toEqual({ wert: 6, einheit: "STK" });
+  });
+
+  it("versteht alle Unit-Aliase aus der Tabelle", () => {
+    expect(zerlegeMenge("250 gr")).toEqual({ wert: 250, einheit: "G" });
+    expect(zerlegeMenge("1 cl")).toEqual({ wert: 10, einheit: "ML" });
+    expect(zerlegeMenge("5 st")).toEqual({ wert: 5, einheit: "STK" });
+    expect(zerlegeMenge("3 stueck")).toEqual({ wert: 3, einheit: "STK" });
+  });
 });
 
 describe("grundpreis", () => {
@@ -49,6 +75,18 @@ describe("grundpreis", () => {
 
   it("rechnet bei Stück auf ein Stück", () => {
     expect(grundpreis(3.0, { wert: 6, einheit: "STK" })).toBeCloseTo(0.5, 4);
+  });
+
+  it("lehnt negativen Preis ab", () => {
+    expect(grundpreis(-2.49, { wert: 250, einheit: "G" })).toBeNull();
+  });
+
+  it("lehnt null-Preis ab", () => {
+    expect(grundpreis(0, { wert: 250, einheit: "G" })).toBeNull();
+  });
+
+  it("lehnt Menge mit wert 0 ab", () => {
+    expect(grundpreis(2.49, { wert: 0, einheit: "G" })).toBeNull();
   });
 });
 
