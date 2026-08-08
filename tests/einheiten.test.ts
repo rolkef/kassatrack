@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { formatiereGrundpreis, grundpreis, zerlegeMenge } from "@/lib/einheiten";
+import { formatiereGrundpreis, grundpreis, zerlegeMenge, zerlegePreis } from "@/lib/einheiten";
 
 describe("zerlegeMenge", () => {
   it("versteht Gramm", () => {
@@ -93,6 +93,46 @@ describe("grundpreis", () => {
 
   it("lehnt Menge mit wert 0 ab", () => {
     expect(grundpreis(2.49, { wert: 0, einheit: "G" })).toBeNull();
+  });
+});
+
+describe("zerlegePreis", () => {
+  it("versteht das österreichische Komma", () => {
+    expect(zerlegePreis("2,49")).toBeCloseTo(2.49, 4);
+  });
+
+  it("versteht auch den Punkt", () => {
+    expect(zerlegePreis("2.49")).toBeCloseTo(2.49, 4);
+  });
+
+  it("versteht ganze Beträge", () => {
+    expect(zerlegePreis("3")).toBeCloseTo(3, 4);
+  });
+
+  it("übersieht Eurozeichen und Leerzeichen", () => {
+    expect(zerlegePreis(" 2,49 € ")).toBeCloseTo(2.49, 4);
+  });
+
+  it("lehnt null ab", () => {
+    expect(zerlegePreis("0")).toBeNull();
+  });
+
+  it("lehnt negative Beträge ab", () => {
+    expect(zerlegePreis("-2,49")).toBeNull();
+  });
+
+  // Wer 2,499 eintippt, hat sich vertippt. Stilles Runden machte daraus eine
+  // Beobachtung, die so nie im Regal stand.
+  it("lehnt mehr als zwei Nachkommastellen ab", () => {
+    expect(zerlegePreis("2,499")).toBeNull();
+  });
+
+  it("lehnt Text ab", () => {
+    expect(zerlegePreis("teuer")).toBeNull();
+  });
+
+  it("lehnt eine leere Eingabe ab", () => {
+    expect(zerlegePreis("")).toBeNull();
   });
 });
 

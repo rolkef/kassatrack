@@ -60,6 +60,31 @@ export function zerlegeMenge(eingabe: string): Menge | null {
 }
 
 /**
+ * Zerlegt eine Preiseingabe wie `"2,49"`, `"2.49"` oder `"2,49 €"`.
+ *
+ * Steht hier und nicht bei der Erfassungsseite, weil es dieselbe Aufgabe ist
+ * wie bei `zerlegeMenge`: Eine unverständliche Eingabe ist bei einem
+ * Eingabefeld kein Ausnahmefall, sondern der Normalfall — deshalb `null` statt
+ * eines geworfenen Fehlers.
+ *
+ * Das Komma ist bewusst gleichberechtigt: In Österreich schreibt man 2,49, und
+ * `Number("2,49")` ergäbe `NaN`. Mehr als zwei Nachkommastellen werden
+ * abgelehnt statt gerundet — wer 2,499 eintippt, hat sich vertippt, und eine
+ * stille Rundung machte daraus eine Beobachtung, die so nie im Regal stand.
+ *
+ * Null und negative Beträge sind ebenfalls `null`: Aus ihnen entsteht kein
+ * Grundpreis, und die Datenbank lehnt sie über `preis_positiv` ohnehin ab —
+ * dort aber als technischer Fehler statt als Satz.
+ */
+export function zerlegePreis(eingabe: string): number | null {
+  const bereinigt = eingabe.replace(/[\s€]/g, "").replace(",", ".");
+  if (!/^\d+(\.\d{1,2})?$/.test(bereinigt)) return null;
+
+  const zahl = Number(bereinigt);
+  return Number.isFinite(zahl) && zahl > 0 ? zahl : null;
+}
+
+/**
  * Preis je Kilogramm, Liter oder Stück.
  *
  * Liefert `null` wenn Gesamtpreis null oder negativ ist, oder wenn die Menge null oder negativ ist.

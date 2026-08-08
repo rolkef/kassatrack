@@ -27,6 +27,23 @@ Verzeichnis geleert, damit kein veraltetes Bild stehen bleibt.
 | `zugriff-ohne-betreiber.png` | Installation, in der niemand als betreibend eingetragen ist |
 | `einladung-handy.png` | Einladungsseite mit frischem Token, ausgeloggt |
 
+## Preiserfassung (Plan 2, Task 7)
+
+Aufgenommen gegen den Produktionsbau (`bun run build && bun run start`), nicht
+gegen den Entwicklungsserver: Nur dort gilt die CSP ohne `'unsafe-eval'`. Die
+Browserkonsole war bei allen Aufnahmen leer.
+
+| Datei | Was zu sehen ist |
+|---|---|
+| `erfassen-handy-leer.png` | Leeres Formular bei 390×844. Die Grundpreis-Fläche sagt, was dort erscheinen wird; alle Platzhalter beginnen mit „z. B." und sind dadurch nicht mit Eingaben zu verwechseln. |
+| `erfassen-handy-fokus.png` | Nach einmal Tabulator: sichtbarer Fokusring auf dem Kettenfeld. Das Optionsfeld selbst liegt unsichtbar darunter, der Ring sitzt trotzdem am sichtbaren Feld. |
+| `erfassen-handy-live.png` | Menge und Preis eingetragen, Grundpreis (9,96 €/kg) **vor** dem Speichern berechnet. Die gewählte Kette bleibt auch unter dem Zeiger lesbar. |
+| `erfassen-handy-gespeichert.png` | Nach dem Speichern: Kette bleibt gewählt, Produktfelder leer, die Fläche wechselt in die Bestätigung. Darunter die Liste „Erfasst 1". Der Satz zur bleibenden Kette steht nur beim ersten Mal. |
+| `erfassen-handy-aktion.png` | Preisart „Aktion" gewählt, dadurch erscheint „Gültig bis". |
+| `erfassen-handy-mehrere.png` | Zweiter Preis desselben Einkaufs. Liste mit zwei Zeilen, das Jüngste zuoberst, die Aktion als solche gekennzeichnet. Preisart steht wieder auf „Normal". |
+| `erfassen-handy-abgewiesen.png` | Vom Server abgewiesene Mengenangabe: Meldung über der Schaltfläche, Beanstandung am Feld, alle Eingaben und die gewählte Kette bleiben stehen. |
+| `erfassen-desktop.png` | Dasselbe Formular bei 1280 px — fünf Ketten und vier Preisarten je in einer Reihe. |
+
 ## PWA-Grundgerüst (Task 9)
 
 | Datei | Was zu sehen ist |
