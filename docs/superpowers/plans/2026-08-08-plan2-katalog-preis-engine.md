@@ -1026,7 +1026,19 @@ export function median(werte: readonly number[]): number | null {
 
   // Kopie: die Aufrufer übergeben oft Ergebnisse, die sie danach weiter
   // benutzen. Ein sortierendes Nebenwirkungen-Rätsel will hier niemand.
-  const sortiert = [...werte].sort((a, b) => a - b);
+  // Nicht-Zahlen fliegen raus, bevor sortiert wird. Der Vergleicher `a - b`
+  // liefert bei NaN selbst NaN, und das ist für `sort()` undefiniertes
+  // Verhalten: bei kurzen Listen kommt NaN heraus — sichtbar —, ab neun Werten
+  // bleibt der NaN unsortiert am Rand liegen und die Funktion liefert eine
+  // völlig normale, falsche Zahl. Das Filtern ist derselbe Gedanke wie beim
+  // Ausreißer: ein Wert, der nicht in die Ordnung gehört, darf die Aussage
+  // nicht verschieben.
+  //
+  // `filter` erzeugt zugleich die nötige Kopie — die Aufrufer benutzen ihre
+  // Liste danach weiter, ein sortierendes Nebenwirkungs-Rätsel will hier
+  // niemand.
+  const sortiert = werte.filter(Number.isFinite).sort((a, b) => a - b);
+  if (sortiert.length === 0) return null;
   const mitte = Math.floor(sortiert.length / 2);
 
   return sortiert.length % 2 === 1 ? sortiert[mitte] : (sortiert[mitte - 1] + sortiert[mitte]) / 2;
