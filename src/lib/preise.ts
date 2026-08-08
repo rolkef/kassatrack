@@ -1,0 +1,167 @@
+import { randomUUID } from "node:crypto";
+import { and, desc, eq, gt, gte, lte } from "drizzle-orm";
+import { storeProduct } from "@/db/schema/katalog";
+import { offer, priceObservation, type Preisart, type Quelle } from "@/db/schema/preise";
+import { holeKetten, type Kette } from "@/lib/katalog";
+import { median } from "@/lib/median";
+import type { ZugriffsDb } from "@/lib/zugriff";
+
+/** Wie weit zurück eine Beobachtung noch als aussagekräftig gilt. */
+export const BEOBACHTUNGSFENSTER_TAGE = 180;
+
+/**
+ * Wie viele der jüngsten Beobachtungen in den Median eingehen.
+ *
+ * Das ist die Umsetzung von „aktualitätsgewichtet": Statt einer Gewichtung,
+ * die niemand nachrechnen kann, zählen schlicht die letzten fünf. Erklärbar
+ * in einem Satz, festnagelbar in einem Test.
+ */
+export const JUENGSTE_BEOBACHTUNGEN = 5;
+
+export type PreisZeile = {
+  kette: Kette;
+  referenzpreis: number | null;
+  anzahl: number;
+  letzteBeobachtung: Date | null;
+  aktion: { preis: number; gueltigBis: Date } | null;
+  bestpreis: number | null;
+};
+
+export async function schreibeBeobachtung(
+  db: ZugriffsDb,
+  eingabe: {
+    storeProductId: string;
+    chainId: string;
+    productId: string;
+    quelle: Quelle;
+    preisart: Preisart;
+    einzelpreis: number;
+    menge?: number;
+    zeilensumme: number;
+    grundpreis: number;
+    aktionsHinweis?: string | null;
+    aktionGueltigBis?: Date | null;
+  },
+): Promise<void> {
+  await db.insert(priceObservation).values({
+    id: randomUUID(),
+    storeProductId: eingabe.storeProductId,
+    chainId: eingabe.chainId,
+    productId: eingabe.productId,
+    quelle: eingabe.quelle,
+    preisart: eingabe.preisart,
+    einzelpreis: eingabe.einzelpreis.toFixed(4),
+    menge: (eingabe.menge ?? 1).toFixed(3),
+    zeilensumme: eingabe.zeilensumme.toFixed(4),
+    grundpreis: eingabe.grundpreis.toFixed(4),
+    aktionsHinweis: eingabe.aktionsHinweis ?? null,
+    aktionGueltigBis: eingabe.aktionGueltigBis ?? null,
+  });
+}
+
+/** Referenzpreis und aktueller Bestpreis, eine Zeile je Kette. */
+export async function holePreisMatrix(db: ZugriffsDb, productId: string): Promise<PreisZeile[]> {
+  const ketten = await holeKetten(db);
+  const grenze = new Date(Date.now() - BEOBACHTUNGSFENSTER_TAGE * 86_400_000);
+  const jetzt = new Date();
+
+  const zeilen: PreisZeile[] = [];
+
+  for (const kette of ketten) {
+    const beobachtungen = await db
+      .select({
+        grundpreis: priceObservation.grundpreis,
+        beobachtetAm: priceObservation.beobachtetAm,
+      })
+      .from(priceObservation)
+      .where(
+        and(
+          eq(priceObservation.productId, productId),
+          eq(priceObservation.chainId, kette.id),
+          // Nur Normalpreise. Aktionen sind der Grund, warum es diese
+          // Trennung gibt — sie dürfen den Referenzpreis nicht verschieben.
+          eq(priceObservation.preisart, "NORMAL"),
+          gte(priceObservation.beobachtetAm, grenze),
+        ),
+      )
+      .orderBy(desc(priceObservation.beobachtetAm))
+      .limit(JUENGSTE_BEOBACHTUNGEN);
+
+    // `numeric` kommt als String zurück — ohne Number(...) würde der Median
+    // Zeichenketten sortieren ("10.4" < "9.6"), nicht Zahlen.
+    const werte = beobachtungen.map((b) => Number(b.grundpreis));
+    const referenzpreis = median(werte);
+    // median filtert nicht-endliche Werte heraus. anzahl muss zählen, was
+    // tatsächlich in die Berechnung eingegangen ist — nicht wie viele Zeilen
+    // die Abfrage geliefert hat, sonst würde die Zahl mehr Vertrauen
+    // vortäuschen, als die Berechnung hergibt.
+    const anzahl = werte.filter(Number.isFinite).length;
+
+    // Zweischritt statt Join mit rohem SQL: erst die store_product-Kennung
+    // für diese Kette und dieses Produkt auflösen, dann die Aktion darauf
+    // abfragen. So kann eine Aktion, die zu einer anderen Kette gehört, hier
+    // nie auftauchen — sie hängt nicht am Produkt, sondern am store_product.
+    const [zuordnung] = await db
+      .select({ id: storeProduct.id })
+      .from(storeProduct)
+      .where(and(eq(storeProduct.chainId, kette.id), eq(storeProduct.productId, productId)))
+      .limit(1);
+
+    const [laufende] = zuordnung
+      ? await db
+          .select({ preis: offer.preis, gueltigBis: offer.gueltigBis })
+          .from(offer)
+          .where(
+            and(
+              eq(offer.storeProductId, zuordnung.id),
+              lte(offer.gueltigVon, jetzt),
+              gt(offer.gueltigBis, jetzt),
+            ),
+          )
+          .orderBy(offer.preis)
+          .limit(1)
+      : [];
+
+    const aktion = laufende
+      ? { preis: Number(laufende.preis), gueltigBis: laufende.gueltigBis }
+      : null;
+
+    const bestpreis =
+      aktion && referenzpreis !== null
+        ? Math.min(aktion.preis, referenzpreis)
+        : (aktion?.preis ?? referenzpreis);
+
+    zeilen.push({
+      kette,
+      referenzpreis,
+      anzahl,
+      letzteBeobachtung: beobachtungen[0]?.beobachtetAm ?? null,
+      aktion: aktion && bestpreis === aktion.preis ? aktion : null,
+      bestpreis,
+    });
+  }
+
+  return zeilen;
+}
+
+/**
+ * Wer gewinnt langfristig, wer heute.
+ *
+ * Beide gleichzeitig, weil beide stimmen: Hofer kann normal teurer sein als
+ * Spar und trotzdem diese Woche der richtige Weg sein.
+ */
+export function bestesAngebot(zeilen: PreisZeile[]): {
+  referenzSieger: PreisZeile | null;
+  heuteSieger: PreisZeile | null;
+} {
+  const mitReferenz = zeilen.filter((z) => z.referenzpreis !== null);
+  const mitBest = zeilen.filter((z) => z.bestpreis !== null);
+
+  const kleinster = <T>(liste: T[], wert: (e: T) => number): T | null =>
+    liste.length === 0 ? null : liste.reduce((a, b) => (wert(b) < wert(a) ? b : a));
+
+  return {
+    referenzSieger: kleinster(mitReferenz, (z) => z.referenzpreis!),
+    heuteSieger: kleinster(mitBest, (z) => z.bestpreis!),
+  };
+}
