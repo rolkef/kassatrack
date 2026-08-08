@@ -388,22 +388,25 @@ const BEZUGSNAME: Record<Basiseinheit, string> = { G: "kg", ML: "l", STK: "Stk" 
  * eine unverständliche Eingabe kein Ausnahmefall, sondern der Normalfall ist.
  */
 export function zerlegeMenge(eingabe: string): Menge | null {
-  const roh = eingabe.trim().toLowerCase();
+  // ö und ü gehören in die Zeichenklasse, sonst scheitert „6 Stück" — die
+  // natürliche Schreibweise — und der Tabelleneintrag dafür wäre unerreichbar.
+  const treffer = eingabe.trim().toLowerCase().match(/^(-?[\d]+(?:[.,]\d+)?)\s*([a-zäöü]+)$/);
+  if (!treffer) return null;
+
+  const zahlString = treffer[1];
 
   // Ein Punkt vor genau DREI Ziffern ist im deutschen Sprachraum das
   // Tausendertrennzeichen: „1.234" heißt 1234, nicht 1,234. Diese Form wird
-  // abgelehnt statt geraten. Wer rät, liefert der einen Hälfte der Nutzer
-  // stillschweigend Zahlen, die um den Faktor 1000 daneben liegen — und nichts
-  // weiter unten kann das erkennen. Ein Punkt vor ein bis zwei Ziffern bleibt
-  // Dezimalpunkt, damit „1.5 l" weiter funktioniert.
-  if (/\d\.\d{3}(?!\d)/.test(roh)) return null;
+  // abgelehnt statt geraten — wer rät, entscheidet nur, welcher Hälfte der
+  // Nutzer er stillschweigend Zahlen liefert, die um den Faktor 1000 daneben
+  // liegen, und nichts weiter unten kann das erkennen.
+  //
+  // Das führende `[1-9]` ist notwendig: Ein Tausenderzeichen steht nie hinter
+  // einer alleinstehenden Null. „0.750" ist deshalb eindeutig ein Dezimalwert
+  // — eine 750-ml-Flasche — und darf nicht mitabgelehnt werden.
+  if (/[1-9]\d*\.\d{3}$/.test(zahlString)) return null;
 
-  // ö und ü gehören in die Zeichenklasse, sonst scheitert „6 Stück" — die
-  // natürliche Schreibweise — und der Eintrag `stueck` wäre unerreichbar.
-  const treffer = roh.match(/^(-?[\d]+(?:[.,]\d{1,2})?)\s*([a-zäöü]+)$/);
-  if (!treffer) return null;
-
-  const zahl = Number(treffer[1].replace(",", "."));
+  const zahl = Number(zahlString.replace(",", "."));
   const gefunden = EINHEITEN[treffer[2]];
   if (!gefunden || !Number.isFinite(zahl) || zahl <= 0) return null;
 
