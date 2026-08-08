@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { bestesAngebot, holePreisMatrix, schreibeBeobachtung } from "@/lib/preise";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
+import { faengtFehler } from "./helfer/fehler";
 
 let umgebung: TestDatenbank;
 
@@ -167,6 +168,24 @@ describe("Aktueller Bestpreis", () => {
     expect(hofer?.aktion).toBeNull();
   });
 
+  it("ignoriert eine Aktion, die erst in der Zukunft beginnt", async () => {
+    // gueltig_von in der Zukunft — ohne die Prüfung darauf würde eine
+    // angekündigte, noch nicht gestartete Aktion schon heute als Bestpreis
+    // erscheinen.
+    await schreibeBeobachtung(umgebung.db, {
+      storeProductId: "sp-hofer", chainId: "c-hofer", productId: "p1",
+      quelle: "MANUAL", preisart: "NORMAL", einzelpreis: 2.79, zeilensumme: 2.79, grundpreis: 11.16,
+    });
+    await umgebung.db.execute(sql`
+      insert into offer (id, store_product_id, preis, gueltig_von, gueltig_bis, quelle)
+      values ('a-zukunft', 'sp-hofer', 1.00, now() + interval '3 days', now() + interval '10 days', 'FLYER')
+    `);
+
+    const hofer = (await holePreisMatrix(umgebung.db, "p1")).find((z) => z.kette.kuerzel === "hofer");
+    expect(hofer?.bestpreis).toBeCloseTo(11.16, 4);
+    expect(hofer?.aktion).toBeNull();
+  });
+
   it("lässt eine Aktion einer anderen Kette nicht auf diese Kette wirken", async () => {
     // Der Join hängt am `store_product` der jeweiligen Kette. Würde er nur
     // über die Produkt-Kennung filtern, sähe Spar hier Hofers Aktionspreis.
@@ -182,6 +201,50 @@ describe("Aktueller Bestpreis", () => {
     const spar = (await holePreisMatrix(umgebung.db, "p1")).find((z) => z.kette.kuerzel === "spar");
     expect(spar?.aktion).toBeNull();
     expect(spar?.bestpreis).toBeCloseTo(9.96, 4);
+  });
+});
+
+describe("schreibeBeobachtung — Zuordnung schützen", () => {
+  // Die Beobachtungshälfte schlüsselt über chainId (Spalte auf
+  // price_observation), die Angebotshälfte über store_product. Ohne diese
+  // Prüfung könnte ein Aufrufer eine storeProductId der einen Kette mit der
+  // chainId einer anderen kombinieren — die Zeile würde klaglos eingefügt
+  // und beim Lesen der falschen Kette zugerechnet.
+  it("verweigert eine chainId, die nicht zur storeProductId passt", async () => {
+    const fehler = await faengtFehler(() =>
+      schreibeBeobachtung(umgebung.db, {
+        // sp-hofer gehört zu c-hofer, nicht zu c-spar.
+        storeProductId: "sp-hofer", chainId: "c-spar", productId: "p1",
+        quelle: "MANUAL", preisart: "NORMAL", einzelpreis: 1, zeilensumme: 1, grundpreis: 10,
+      }),
+    );
+    expect(fehler).toBeDefined();
+
+    // Der eigentliche Beweis: nicht nur ein Fehler, sondern auch keine
+    // Beobachtung, die unter der falschen Kette auftaucht.
+    const spar = (await holePreisMatrix(umgebung.db, "p1")).find((z) => z.kette.kuerzel === "spar");
+    expect(spar?.anzahl).toBe(0);
+    expect(spar?.referenzpreis).toBeNull();
+  });
+
+  it("verweigert eine productId, die nicht zur storeProductId passt", async () => {
+    const fehler = await faengtFehler(() =>
+      schreibeBeobachtung(umgebung.db, {
+        storeProductId: "sp-spar", chainId: "c-spar", productId: "gibtesnicht",
+        quelle: "MANUAL", preisart: "NORMAL", einzelpreis: 1, zeilensumme: 1, grundpreis: 10,
+      }),
+    );
+    expect(fehler).toBeDefined();
+  });
+
+  it("verweigert eine unbekannte storeProductId", async () => {
+    const fehler = await faengtFehler(() =>
+      schreibeBeobachtung(umgebung.db, {
+        storeProductId: "gibtesnicht", chainId: "c-spar", productId: "p1",
+        quelle: "MANUAL", preisart: "NORMAL", einzelpreis: 1, zeilensumme: 1, grundpreis: 10,
+      }),
+    );
+    expect(fehler).toBeDefined();
   });
 });
 

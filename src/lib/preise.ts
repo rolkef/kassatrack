@@ -43,6 +43,30 @@ export async function schreibeBeobachtung(
     aktionGueltigBis?: Date | null;
   },
 ): Promise<void> {
+  // storeProductId, chainId und productId sind drei unabhängige Fremdschlüssel
+  // — keine Datenbank-Bedingung hält sie zusammen. Ohne diese Prüfung könnte
+  // ein Aufrufer eine storeProductId der einen Kette mit der chainId einer
+  // anderen kombinieren: die Zeile ließe sich klaglos einfügen, würde aber
+  // beim Lesen der falschen Kette zugerechnet, weil holePreisMatrix die
+  // Beobachtungshälfte über chainId und die Angebotshälfte über
+  // store_product schlüsselt. Das ist derselbe Fehlkauf-Fehler, den der
+  // Lesepfad verhindert — hier sitzt er auf dem Schreibpfad.
+  const [zuordnung] = await db
+    .select({ chainId: storeProduct.chainId, productId: storeProduct.productId })
+    .from(storeProduct)
+    .where(eq(storeProduct.id, eingabe.storeProductId))
+    .limit(1);
+
+  if (!zuordnung) {
+    throw new Error(`Unbekannte storeProductId: ${eingabe.storeProductId}`);
+  }
+  if (zuordnung.chainId !== eingabe.chainId || zuordnung.productId !== eingabe.productId) {
+    throw new Error(
+      `storeProductId ${eingabe.storeProductId} gehört zu Kette ${zuordnung.chainId} und ` +
+        `Produkt ${zuordnung.productId} — nicht zu ${eingabe.chainId} / ${eingabe.productId}.`,
+    );
+  }
+
   await db.insert(priceObservation).values({
     id: randomUUID(),
     storeProductId: eingabe.storeProductId,
