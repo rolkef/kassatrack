@@ -29,6 +29,29 @@ async function main() {
     return;
   }
 
+  /*
+   * Ziel klar benennen, bevor irgendetwas ausgeführt wird — nie die
+   * Zugangsdaten. Grund: Bun lädt `.env`-Dateien automatisch, auch außerhalb
+   * des Containers. Ein Aufruf dieses Skripts auf der eigenen Maschine (die
+   * Anleitung in docs/deployment-coolify.md erwähnt genau das als Option für
+   * andere Schritte) würde ohne diese Zeile still die lokale
+   * Entwicklungs-Datenbank aus `.env` treffen, dieselbe Erfolgsmeldung
+   * ausgeben, und den Eindruck hinterlassen, die Produktionsdatenbank sei
+   * migriert — bis Schritt 7 der Anleitung gegen eine leere Produktions-Tabelle
+   * scheitert. `URL` statt einer eigenen Parser-Logik: wirft von selbst bei
+   * einem kaputten Verbindungsstring, statt später mit einer irreführenden
+   * Fehlermeldung aus `pg`.
+   */
+  let ziel: URL;
+  try {
+    ziel = new URL(datenbankUrl);
+  } catch {
+    console.error("DATABASE_URL ist kein gültiger Verbindungsstring — Abbruch.");
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`Wende Migrationen aus drizzle/ an — Ziel: ${ziel.host}${ziel.pathname} …`);
+
   // Derselbe Zeitgrenzwert wie in `src/db/index.ts`: node-postgres wartet
   // ohne `connectionTimeoutMillis` unbegrenzt auf eine Verbindung. Ein
   // Postgres, das schweigt statt abzulehnen, soll auch hier zu einem
@@ -36,7 +59,6 @@ async function main() {
   const pool = new Pool({ connectionString: datenbankUrl, connectionTimeoutMillis: 10_000 });
   const db = drizzle(pool);
 
-  console.log("Wende Migrationen aus drizzle/ an …");
   try {
     await migrate(db, { migrationsFolder: "./drizzle" });
     console.log("Migrationen erfolgreich angewendet.");

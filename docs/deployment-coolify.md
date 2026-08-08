@@ -64,8 +64,8 @@ wenn sie es tut.
 ## 6. Migrationen ausführen
 
 Die SQL-Migrationen liegen unter `drizzle/` und werden **nie automatisch**
-beim Start ausgeführt — das Image führt nur `bun server.js` aus. Vor dem
-ersten Start und nach jedem Deployment, das neue Dateien unter `drizzle/`
+beim Start ausgeführt — das Image führt nur `bun server.js` aus. Vor der
+ersten Nutzung und nach jedem Deployment, das neue Dateien unter `drizzle/`
 mitbringt, müssen sie von Hand angewendet werden:
 
 1. In Coolify: die Anwendung öffnen → Terminal des laufenden Containers.
@@ -88,36 +88,73 @@ Projekt selbst genutzte ORM-Bibliothek) direkt einbindet — es braucht zur
 Laufzeit **keinen Netzwerkzugriff auf irgendeine Paket-Registry**, nur die
 Datenbankverbindung aus `DATABASE_URL`.
 
-Erfolg sieht so aus:
+Erfolg sieht so aus (die erste Zeile nennt das tatsächliche Ziel — Host,
+Port und Datenbankname, nie die Zugangsdaten — damit ein versehentlicher
+Lauf gegen die falsche Datenbank sofort auffällt, statt sich hinter einer
+identischen Erfolgsmeldung zu verstecken):
 
 ```
-Wende Migrationen aus drizzle/ an …
+Wende Migrationen aus drizzle/ an — Ziel: intern-postgres:5432/kassatrack …
 Migrationen erfolgreich angewendet.
 ```
 
 Ein erneuter Aufruf, wenn bereits alles angewendet ist, ist unschädlich (die
 Migrationen sind in einer eigenen Tabelle `drizzle.__drizzle_migrations`
-protokolliert und werden nicht doppelt ausgeführt). Bei einem Fehler
-(z. B. nicht erreichbare Datenbank) meldet das Skript
-„Migration fehlgeschlagen: …" mit der zugrundeliegenden Ursache und beendet
-sich mit einem Exit-Code ungleich 0 — es rollt bereits angewendete
-Migrationen dabei nicht zurück. Bei einem Abbruch mitten in einer Migration
-den Fehlertext lesen (meist ein SQL-Fehler auf der jeweiligen `.sql`-Datei
-unter `drizzle/`) und erst danach erneut versuchen, statt den Befehl blind zu
-wiederholen.
+protokolliert und werden nicht doppelt ausgeführt).
+
+**Bei einem Fehler ist der Lauf vollständig atomar — die Datenbank bleibt
+unverändert, nichts ist „halb" migriert.** `drizzle-orm` wendet alle in einem
+Lauf ausstehenden Migrationen in einer einzigen Datenbank-Transaktion an
+(`node_modules/drizzle-orm/pg-core/dialect.js`, Zeile 60–71:
+`await session.transaction(async (tx) => { for await (const migration of
+migrations) { … } })` — sowohl die SQL-Anweisungen jeder Migration als auch
+der Eintrag in `drizzle.__drizzle_migrations` laufen innerhalb dieser einen
+Transaktion). Scheitert eine SQL-Anweisung in der dritten Migration, rollt
+Postgres **auch die bereits erfolgreich gelaufenen erste und zweite
+Migration samt ihrer Buchführungszeilen zurück** — keine der drei Dateien
+unter `drizzle/` enthält nicht-transaktionale Anweisungen wie `CREATE INDEX
+CONCURRENTLY` oder `ALTER TYPE … ADD VALUE`, die das verhindern würden.
+
+Das Skript meldet „Migration fehlgeschlagen: …" mit der zugrundeliegenden
+Ursache und beendet sich mit einem Exit-Code ungleich 0. Die richtige
+Reaktion ist deshalb **nicht**, die Datenbank auf einen halb angewendeten
+Zustand hin zu untersuchen — es gibt keinen. Stattdessen: den Fehlertext
+lesen (meist ein SQL-Fehler auf der jeweiligen `.sql`-Datei unter
+`drizzle/`, oder ein Verbindungsproblem), die Ursache beheben, und den
+Befehl unverändert erneut ausführen.
 
 ## 7. Ersten Zugang freischalten
 
 Da die Allowlist leer ist, kommt niemand herein — auch der Betreiber nicht.
-Einmalig im Postgres-Terminal (Coolify → Postgres-Service → Terminal, oder
-`psql` gegen die Verbindungs-URL aus Schritt 1):
 
-```sql
+**Coolify → Postgres-Service → Terminal öffnet in aller Regel eine
+Shell im Datenbank-Container, keinen fertigen `psql`-Prompt** (das ist nicht
+auf diesem Host verifiziert, sondern aus der Funktionsweise der
+Terminal-Funktion geschlossen — im Zweifel zeigt sich das sofort: die
+`insert`-Anweisung direkt eingetippt liefert `insert: not found` oder eine
+ähnliche Shell-Fehlermeldung, statt eine Postgres-Antwort). Für den
+üblichen Fall (Shell) `psql` selbst aufrufen, mit der Verbindungs-URL aus
+Schritt 1:
+
+```bash
+psql "postgres://user:passwort@host:5432/datenbank" -c "
 insert into allowed_email (id, email, ist_betreiber)
 values (gen_random_uuid()::text, 'deine.adresse@example.at', true);
+"
 ```
 
-Zwei Dinge sind hier zwingend, nicht optional:
+Landet man stattdessen direkt in einem `psql`-Prompt (die Zeile endet auf
+`=#` statt auf ein Shell-Prompt-Zeichen wie `$` oder `#`), genügt die reine
+SQL-Anweisung ohne den vorangestellten `psql`-Aufruf.
+
+Danach nachprüfen, dass der Eintrag tatsächlich mit gesetztem Flag
+angekommen ist, bevor man sich auf `/verwaltung/zugriff` verlässt:
+
+```sql
+select email, ist_betreiber from allowed_email;
+```
+
+Zwei Dinge sind bei der Einfügung zwingend, nicht optional:
 
 - **`ist_betreiber` muss `true` sein.** Ohne dieses Flag kommt die Adresse
   zwar herein, aber niemand kann `/verwaltung/zugriff` öffnen — und weitere
@@ -135,20 +172,48 @@ Danach über `/verwaltung/zugriff` alle weiteren Personen einladen.
 `src/lib/auth.ts` schaltet Better Auths eingebaute Begrenzung ausdrücklich
 ein (`{ enabled: true, window: 60, max: 20 }`) und benennt die Herkunfts-Kopfzeile
 explizit (`advanced.ipAddress.ipAddressHeaders: ["x-forwarded-for"]`). Das ist
-für den Betrieb hinter Coolifys mitgeliefertem Traefik korrekt, aber mit einer
-Einschränkung, die beim Skalieren wichtig wird:
+für den Betrieb hinter Coolifys mitgeliefertem Traefik korrekt — **unter der
+Annahme**, dass Traefik dort einen von außen mitgebrachten
+`X-Forwarded-For`-Kopf durch die tatsächliche Verbindung ersetzt, solange
+niemand `trustedIPs`/`insecure` dafür einträgt (z. B. für ein
+vorgeschaltetes CDN). Diese Annahme ist nicht in dieser Sitzung gegen eine
+echte Coolify-Installation geprüft worden, sondern aus einer früheren
+Quelltext-Prüfung von Traefik übernommen (Details und Fundstelle in
+`src/lib/auth.ts`) — mit zwei Einschränkungen, die im Betrieb wichtig sind:
 
-- Ohne eigene `secondaryStorage` verwendet Better Auth einen **In-Memory-Zähler
-  je Prozess**. Bei genau einer Replik (der Standard für diese Anwendung) ist
-  das unproblematisch. Wird die Anwendung in Coolify auf mehrere Repliken
-  skaliert, bekommt **jede Replik ihr eigenes Kontingent** — das tatsächliche
-  Limit wächst dann unbemerkt mit der Replik-Anzahl, ohne dass an der
-  Konfiguration etwas geändert wurde.
-- Traefik in einer Standard-Coolify-Installation ersetzt einen von außen
-  mitgebrachten `X-Forwarded-For`-Kopf durch die tatsächliche Verbindung,
-  solange niemand `trustedIPs`/`insecure` dafür einträgt (z. B. für ein
-  vorgeschaltetes CDN). Ohne einen solchen zusätzlichen Sprung reicht die
-  aktuelle Konfiguration aus.
+- **Größenordnung im degradierten Fall.** Better Auth verschärft die
+  konfigurierten Werte für bestimmte Pfade automatisch
+  (`getDefaultSpecialRules()` in
+  `node_modules/better-auth/dist/api/rate-limiter/index.mjs`, Zeile 370–377):
+  jeder Pfad, der mit `/sign-in` beginnt, bekommt **3 Anfragen pro 10
+  Sekunden** statt der konfigurierten 20 pro 60 Sekunden. Das betrifft die
+  Google-Anmeldung (`/sign-in/social`) unmittelbar. Für Passkeys gilt das
+  **nicht** — deren Endpunkte liegen unter `/passkey/…` (z. B.
+  `/passkey/verify-authentication`), das Plugin registriert keine eigene
+  `rateLimit`-Regel, und sie fallen deshalb unter die allgemeine
+  20-pro-60-Sekunden-Konfiguration. Kann die Herkunfts-Adresse nicht
+  aufgelöst werden, teilen sich **alle** Personen einen einzigen Bucket pro
+  Pfad — bei der Google-Anmeldung sind das dann 3 Anmeldeversuche pro 10
+  Sekunden für die gesamte Installation. Mehrere Personen, die kurz
+  hintereinander mit Google anmelden, würden sich in diesem Fall gegenseitig
+  aussperren (429 „Too many requests").
+- **Signal im Log, um genau das zu erkennen.** Kann Better Auth zur Laufzeit
+  keine Herkunfts-Adresse auflösen, protokolliert es einmalig pro
+  Prozessstart (nicht pro Anfrage — durch ein Modul-Flag begrenzt, `let
+  ipWarningLogged = false` in derselben Datei, Zeile 274) die Meldung
+  „Rate limiting could not determine a client IP and is falling back to a
+  single shared per-path bucket. …". Nach dieser Zeile im Container-Log
+  suchen (`docker logs` bzw. Coolifys Log-Ansicht), wenn ungeklärte
+  429-Antworten auftreten — sie ist die eindeutige Bestätigung, dass
+  `x-forwarded-for` gerade nicht aufgelöst wird, unabhängig davon, welche der
+  beiden Ursachen (Traefik-Konfiguration oder ein zusätzlicher, hier nicht
+  vorgesehener Sprung wie ein CDN) dahintersteckt.
+- **Repliken.** Ohne eigene `secondaryStorage` verwendet Better Auth einen
+  **In-Memory-Zähler je Prozess**. Bei genau einer Replik (der Standard für
+  diese Anwendung) ist das unproblematisch. Wird die Anwendung in Coolify auf
+  mehrere Repliken skaliert, bekommt **jede Replik ihr eigenes Kontingent** —
+  das tatsächliche Limit wächst dann unbemerkt mit der Replik-Anzahl, ohne
+  dass an der Konfiguration etwas geändert wurde.
 
 **Solange nur eine Replik läuft, ist keine weitere Aktion nötig.** Wird später
 skaliert, muss vorher eine geteilte Ablage (z. B. Redis über

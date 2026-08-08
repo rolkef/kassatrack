@@ -87,20 +87,28 @@ export function erzeugeAuth(datenbank: ZugriffsDb) {
      * einer künftigen Better-Auth-Version ändern könnte, ohne dass hier
      * jemand hinschaut.
      *
-     * Geprüft, nicht angenommen: Coolifys mitgelieferter Traefik setzt beim
-     * Anlegen der Ressource **kein** `forwardedHeaders.trustedIPs` und kein
-     * `insecure` (nachgesehen in `bootstrap/helpers/proxy.php` des
+     * Annahme, keine in dieser Sitzung erneut nachvollzogene Tatsache:
+     * Coolifys mitgelieferter Traefik setzt beim Anlegen der Ressource
+     * **kein** `forwardedHeaders.trustedIPs` und kein `insecure` (Stand einer
+     * früheren Prüfung gegen `bootstrap/helpers/proxy.php` des
      * coollabsio/coolify-Repos — dort ist `trustedIPs` ein optionaler
      * Zusatzbefehl, den man selbst für z. B. Cloudflare einträgt, kein
      * Standardwert). Traefiks `XForwarded`-Middleware
      * (`pkg/middlewares/forwardedheaders/forwarded_header.go`) verwirft ohne
      * `insecure`/`trustedIPs` jeden aus dem Netz mitgebrachten
      * `X-Forwarded-For` und setzt ihn aus der tatsächlichen Verbindung neu —
-     * bei einer normalen Coolify-Installation ohne vorgeschaltetes CDN ist das
-     * also immer genau ein Wert: die echte Adresse der anfragenden Person.
-     * Genau dafür reicht Better Auths Vorgabe (`ipAddressHeaders` ohne
-     * `trustedProxies`) bereits aus — sie vertraut einem Kopf nur, wenn er
-     * exakt einen Wert trägt.
+     * bei einer normalen Coolify-Installation ohne vorgeschaltetes CDN wäre
+     * das also immer genau ein Wert: die echte Adresse der anfragenden
+     * Person. Genau dafür reicht Better Auths Vorgabe (`ipAddressHeaders`
+     * ohne `trustedProxies`) bereits aus — sie vertraut einem Kopf nur, wenn
+     * er exakt einen Wert trägt. **Diese Coolify/Traefik-Annahme wurde seither
+     * nicht erneut gegen den aktuellen Stand des coollabsio/coolify-Repos
+     * geprüft** — sie kann veralten, falls sich Coolifys Vorgabe ändert. Das
+     * belastbare Signal zur Laufzeit ist die Better-Auth-eigene Warnung
+     * „Rate limiting could not determine a client IP …" im Server-Log (einmal
+     * pro Prozessstart protokolliert): erscheint sie, greift die Annahme oben
+     * nicht (mehr), und die Begrenzung fällt auf einen einzigen gemeinsamen
+     * Bucket pro Pfad zurück.
      *
      * `trustedProxies` bleibt deshalb hier bewusst leer. Ein Eintrag wäre erst
      * nötig, sobald ein zusätzlicher Sprung vor Traefik dazukäme (etwa
