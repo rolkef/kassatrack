@@ -61,6 +61,9 @@ export const priceObservation = pgTable(
       "preis_aktion_hat_ende",
       sql`${tabelle.preisart} <> 'PROMO' or ${tabelle.aktionGueltigBis} is not null`,
     ),
+    // konfidenz ist eine Wahrscheinlichkeit. Ohne diese Grenze ließe sich
+    // jede Zahl eintragen, obwohl nur 0 bis 1 semantisch etwas bedeutet.
+    check("preis_konfidenz_bereich", sql`${tabelle.konfidenz} >= 0 and ${tabelle.konfidenz} <= 1`),
     index("preis_produkt_kette_zeit").on(tabelle.productId, tabelle.chainId, tabelle.beobachtetAm),
   ],
 );

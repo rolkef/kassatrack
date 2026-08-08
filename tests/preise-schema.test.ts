@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { sql } from "drizzle-orm";
-import { priceObservation } from "@/db/schema/preise";
+import { offer, priceObservation } from "@/db/schema/preise";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
 import { faengtFehler } from "./helfer/fehler";
 
@@ -29,7 +29,21 @@ beforeAll(async () => {
       constraint preis_quelle_bekannt check (quelle in ('RECEIPT','BARCODE','MANUAL','CHAIN_API','FLYER')),
       constraint preis_art_bekannt check (preisart in ('NORMAL','PROMO','LOYALTY','MULTIBUY')),
       constraint preis_positiv check (einzelpreis > 0 and zeilensumme > 0 and grundpreis > 0),
-      constraint preis_aktion_hat_ende check (preisart <> 'PROMO' or aktion_gueltig_bis is not null)
+      constraint preis_aktion_hat_ende check (preisart <> 'PROMO' or aktion_gueltig_bis is not null),
+      constraint preis_konfidenz_bereich check (konfidenz >= 0 and konfidenz <= 1)
+    )
+  `);
+  await umgebung.db.execute(sql`
+    create table offer (
+      id text primary key,
+      store_product_id text not null,
+      preis numeric(10,4) not null,
+      gueltig_von timestamptz not null,
+      gueltig_bis timestamptz not null,
+      bedingung text,
+      quelle text not null,
+      constraint offer_zeitraum check (gueltig_bis > gueltig_von),
+      constraint offer_preis_positiv check (preis > 0)
     )
   `);
 }, 120_000);
@@ -102,5 +116,54 @@ describe("Datenbank-Bedingungen der Preisbeobachtung", () => {
       }),
     );
     expect(fehler).toBeUndefined();
+  });
+
+  // konfidenz ist semantisch eine Wahrscheinlichkeit. Ohne diese Bedingung
+  // ließe sich hier jede Zahl eintragen, obwohl nur 0 bis 1 einen Sinn ergeben.
+  it("verweigert eine Konfidenz außerhalb des gültigen Bereichs", async () => {
+    const fehler = await faengtFehler(() =>
+      umgebung.db
+        .insert(priceObservation)
+        .values({ id: "7", ...basis, preisart: "NORMAL", konfidenz: "1.5" }),
+    );
+    expect(fehler).toBeDefined();
+  });
+});
+
+const basisAngebot = {
+  storeProductId: "sp1",
+  preis: "1.99",
+  gueltigVon: new Date("2026-01-01T00:00:00Z"),
+  gueltigBis: new Date("2026-01-08T00:00:00Z"),
+  quelle: "FLYER" as const,
+};
+
+describe("Datenbank-Bedingungen der Aktion (offer)", () => {
+  it("nimmt ein gültiges Angebot an", async () => {
+    const fehler = await faengtFehler(() =>
+      umgebung.db.insert(offer).values({ id: "o1", ...basisAngebot }),
+    );
+    expect(fehler).toBeUndefined();
+  });
+
+  // Ein Gültigkeitszeitraum, der vor seinem Beginn endet, würde Task 6s
+  // Bestpreis-Berechnung eine Aktion liefern, die nie oder immer gilt.
+  it("verweigert einen Gültigkeitszeitraum, der nicht nach seinem Beginn endet", async () => {
+    const fehler = await faengtFehler(() =>
+      umgebung.db.insert(offer).values({
+        id: "o2",
+        ...basisAngebot,
+        gueltigVon: new Date("2026-01-08T00:00:00Z"),
+        gueltigBis: new Date("2026-01-01T00:00:00Z"),
+      }),
+    );
+    expect(fehler).toBeDefined();
+  });
+
+  it("verweigert einen Angebotspreis von null", async () => {
+    const fehler = await faengtFehler(() =>
+      umgebung.db.insert(offer).values({ id: "o3", ...basisAngebot, preis: "0" }),
+    );
+    expect(fehler).toBeDefined();
   });
 });

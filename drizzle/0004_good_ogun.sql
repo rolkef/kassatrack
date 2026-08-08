@@ -1,0 +1,1 @@
+ALTER TABLE "price_observation" ADD CONSTRAINT "preis_konfidenz_bereich" CHECK ("price_observation"."konfidenz" >= 0 and "price_observation"."konfidenz" <= 1);
