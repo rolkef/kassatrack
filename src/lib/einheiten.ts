@@ -43,10 +43,12 @@ export function zerlegeMenge(eingabe: string): Menge | null {
   const treffer = eingabe.trim().toLowerCase().match(/^(-?[\d]+(?:[.,]\d+)?)\s*([a-zäöü]+)$/);
   if (!treffer) return null;
 
-  let zahlString = treffer[1];
+  const zahlString = treffer[1];
 
-  // Lehne mehrdeutige Punkte ab: Punkt mit genau 3 Ziffern dahinter (z. B. 1.234, 10.000)
-  if (/\.\d{3}$/.test(zahlString)) {
+  // Lehne mehrdeutige Punkte ab: Punkt mit genau 3 Ziffern dahinter, aber nur wenn
+  // eine Ziffer vor dem Punkt ungleich null ist (z. B. 1.234, 10.000). Ein Punkt mit
+  // Leidzahl null (z. B. 0.750) ist immer ein Dezimaltrennzeichen.
+  if (/[1-9]\d*\.\d{3}$/.test(zahlString)) {
     return null;
   }
 
@@ -61,7 +63,9 @@ export function zerlegeMenge(eingabe: string): Menge | null {
  * Preis je Kilogramm, Liter oder Stück.
  *
  * Liefert `null` wenn Gesamtpreis null oder negativ ist, oder wenn die Menge null oder negativ ist.
- * Diese Fälle sind Programmfehler (keine Benutzereingaben) und sollten sofort auffallen.
+ * Diese Fälle sind Programmfehler (keine Benutzereingaben). Die nullable Rückgabe zwingt jeden Aufrufer
+ * zur Compile-Zeit, mit dem null-Fall umzugehen — das verhindert das stille Fortpflanzen von `Infinity`
+ * oder anderen ungültigen Werten weiter in Formatierung und Datenbank.
  */
 export function grundpreis(gesamtpreis: number, menge: Menge): number | null {
   if (!Number.isFinite(gesamtpreis) || gesamtpreis <= 0) return null;

@@ -62,6 +62,12 @@ describe("zerlegeMenge", () => {
     expect(zerlegeMenge("5 st")).toEqual({ wert: 5, einheit: "STK" });
     expect(zerlegeMenge("3 stueck")).toEqual({ wert: 3, einheit: "STK" });
   });
+
+  it("akzeptiert Punkt mit Leidzahl null vor dezimalen Drei-Ziffern-Blöcken", () => {
+    expect(zerlegeMenge("0.750 l")).toEqual({ wert: 750, einheit: "ML" });
+    expect(zerlegeMenge("0.500 kg")).toEqual({ wert: 500, einheit: "G" });
+    expect(zerlegeMenge("0.100 kg")).toEqual({ wert: 100, einheit: "G" });
+  });
 });
 
 describe("grundpreis", () => {
