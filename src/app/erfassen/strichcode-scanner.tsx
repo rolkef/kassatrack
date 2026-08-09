@@ -61,6 +61,7 @@ export function StrichcodeScanner({
   const [zustand, setZustand] = useState<Zustand>("bereit");
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const abgebaut = useRef(false);
 
   const stoppe = useCallback(() => {
     streamRef.current?.getTracks().forEach((spur) => spur.stop());
@@ -68,8 +69,25 @@ export function StrichcodeScanner({
     setZustand("bereit");
   }, []);
 
-  /* Verlässt jemand den Bildschirm mitten im Scan, bleibt die Kamera sonst an. */
-  useEffect(() => stoppe, [stoppe]);
+  /*
+   * Verlässt jemand den Bildschirm mitten im Scan, bleibt die Kamera sonst an.
+   *
+   * `abgebaut` deckt den Fall ab, den `stoppe` allein nicht erreicht: Wird die
+   * Komponente abgebaut, während `kameraStarten()` noch an der
+   * Berechtigungsabfrage hängt, ist `streamRef` hier noch leer. Der Strom käme
+   * erst danach und hätte niemanden mehr, der ihn abschaltet — die
+   * Kameraleuchte bliebe an, bis der Tab zugeht. Am Anfang zurückgesetzt, weil
+   * React im Entwicklungsmodus jeden Effekt einmal ab- und wieder aufbaut;
+   * ohne das bliebe die Marke nach dem ersten Durchgang dauerhaft stehen und
+   * kein Scan liefe je an.
+   */
+  useEffect(() => {
+    abgebaut.current = false;
+    return () => {
+      abgebaut.current = true;
+      stoppe();
+    };
+  }, [stoppe]);
 
   /*
    * Die Vorschau wird erst hier angehängt, nicht schon in `starte()`.
@@ -136,12 +154,18 @@ export function StrichcodeScanner({
 
   async function starte() {
     setZustand("fordert_kamera");
+    let strom: MediaStream;
     try {
-      streamRef.current = await kameraStarten();
+      strom = await kameraStarten();
     } catch {
       setZustand("keine_berechtigung");
       return;
     }
+    if (abgebaut.current) {
+      strom.getTracks().forEach((spur) => spur.stop());
+      return;
+    }
+    streamRef.current = strom;
     setZustand("scannt");
   }
 

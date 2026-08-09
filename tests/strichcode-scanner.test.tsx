@@ -31,6 +31,24 @@ function fakeKamera() {
   return { kamera, stop };
 }
 
+/** Dieselbe Kamera, aber sie antwortet erst, wenn der Test es zulässt. */
+function zoegerndeKamera() {
+  const stop = mock(() => {});
+  let freigeben!: () => void;
+  const kamera = mock(
+    () =>
+      new Promise<MediaStream>((aufloesen) => {
+        freigeben = () =>
+          aufloesen(
+            Object.assign(new MediaStream(), {
+              getTracks: () => [{ stop } as unknown as MediaStreamTrack],
+            }),
+          );
+      }),
+  );
+  return { kamera, stop, antworte: () => freigeben() };
+}
+
 describe("StrichcodeScanner", () => {
   it("ruft onErkannt mit dem erkannten Code auf, sobald der injizierte Decoder liefert", async () => {
     const onErkannt = mock((_ean: string) => {});
@@ -101,5 +119,29 @@ describe("StrichcodeScanner", () => {
     // leuchtete die Kameraleuchte weiter — sichtbar nur am Gerät, von keiner
     // Zustandsprüfung erfasst.
     expect(stop).toHaveBeenCalled();
+  });
+
+  /*
+   * Der Fall, den keine Zustandsprüfung sieht: Zwischen dem Tippen und dem
+   * Kamerabild steht die Berechtigungsabfrage des Browsers, und die dauert.
+   * Wird der Bildschirm in dieser Zeit verlassen, läuft der Abbau, während der
+   * Strom noch gar nicht da ist — er kommt danach und gehört niemandem mehr.
+   * Sichtbar wäre das nur an der Kameraleuchte des Geräts, die dann bis zum
+   * Schließen des Tabs weiterleuchtet.
+   */
+  it("gibt die Kamera frei, wenn der Bildschirm noch während der Berechtigungsabfrage verlassen wird", async () => {
+    const decoder = { erkenne: mock(async () => []) };
+    const { kamera, stop, antworte } = zoegerndeKamera();
+
+    const { unmount } = render(
+      <StrichcodeScanner onErkannt={() => {}} decoder={decoder} kameraStarten={kamera} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Strichcode scannen" }));
+    await waitFor(() => expect(kamera).toHaveBeenCalledTimes(1));
+
+    unmount();
+    antworte();
+
+    await waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
   });
 });
