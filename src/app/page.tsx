@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { benennePreisart } from "@/app/erfassen/zustand";
 import { db } from "@/db";
 import { formatiereGrundpreis, formatierePackung } from "@/lib/einheiten";
 import { holeLetzteErfassungen, type LetzteErfassung } from "@/lib/preise";
@@ -130,9 +131,16 @@ function Liste({ eintraege }: { eintraege: LetzteErfassung[] }) {
                   <span className="font-normal text-gedaempft"> · {eintrag.marke}</span>
                 ) : null}
               </span>
+              {/*
+                Die Preisart steht dabei, sobald sie nicht „Normal" ist —
+                dieselbe Regel wie in der Liste „Erfasst" des Formulars. Ohne
+                sie läsen sich zwei Preise derselben Kette vom selben Tag wie
+                widersprüchliche Daten statt wie Regalpreis und Aktion.
+              */}
               <span className="text-xs text-gedaempft">
                 {formatierePackung(eintrag.menge, eintrag.einheit)} bei {eintrag.kette} ·{" "}
                 {formatiereWann(eintrag.beobachtetAm, jetzt)}
+                {eintrag.preisart === "NORMAL" ? "" : ` · ${benennePreisart(eintrag.preisart)}`}
               </span>
             </span>
             <span className="zahlen shrink-0 text-[0.9375rem] text-marke">

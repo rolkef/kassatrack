@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { bestesAngebot, holePreisMatrix, schreibeBeobachtung } from "@/lib/preise";
+import {
+  bestesAngebot,
+  holeLetzteErfassungen,
+  holePreisMatrix,
+  schreibeBeobachtung,
+} from "@/lib/preise";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
 import { faengtFehler } from "./helfer/fehler";
 
@@ -27,10 +32,29 @@ async function grundgeruest() {
     values ('p1', 'Butter', 250, 'G')
   `);
 
+  /*
+   * Ein zweites Produkt allein für `holeLetzteErfassungen`: Die Funktion fragt
+   * quer über alle Produkte und Ketten ab, statt wie `holePreisMatrix` nach
+   * einer Kennung zu filtern. Mit nur einem Produkt ließe sich nicht zeigen,
+   * dass die beiden Verknüpfungen die richtige Zeile treffen — jede falsche
+   * Zuordnung sähe genauso aus wie die richtige.
+   *
+   * Für die übrigen Tests in dieser Datei ist es unsichtbar: Die fragen alle
+   * ausdrücklich nach `p1`.
+   */
+  await umgebung.db.execute(sql`
+    insert into product (id, name, marke, menge, einheit)
+    values ('p2', 'Vollmilch', 'Schärdinger', 1000, 'ML')
+  `);
+
   for (const kuerzel of ketten) {
     await umgebung.db.execute(sql`
       insert into store_product (id, chain_id, product_id)
       values (${"sp-" + kuerzel}, ${"c-" + kuerzel}, 'p1')
+    `);
+    await umgebung.db.execute(sql`
+      insert into store_product (id, chain_id, product_id)
+      values (${"sp2-" + kuerzel}, ${"c-" + kuerzel}, 'p2')
     `);
   }
 }
@@ -365,5 +389,154 @@ describe("bestesAngebot — das Butter-Szenario", () => {
     const { referenzSieger, heuteSieger } = bestesAngebot(await holePreisMatrix(umgebung.db, "p1"));
     expect(referenzSieger).toBeNull();
     expect(heuteSieger).toBeNull();
+  });
+});
+
+/**
+ * Schreibt eine Beobachtung mit einem gesetzten Zeitpunkt.
+ *
+ * `schreibeBeobachtung` nimmt keinen entgegen — die Spalte hat `defaultNow()`.
+ * Für die Reihenfolge braucht es aber auseinanderliegende Zeitpunkte, und für
+ * die Stichentscheidung ausdrücklich gleiche.
+ */
+async function beobachtungMitZeit(eingabe: {
+  id: string;
+  storeProductId: string;
+  chainId: string;
+  productId: string;
+  grundpreis: number;
+  vorTagen: number;
+  preisart?: string;
+}) {
+  await umgebung.db.execute(sql`
+    insert into price_observation
+      (id, store_product_id, chain_id, product_id, beobachtet_am, quelle, preisart,
+       einzelpreis, zeilensumme, grundpreis, aktion_gueltig_bis)
+    values (${eingabe.id}, ${eingabe.storeProductId}, ${eingabe.chainId}, ${eingabe.productId},
+            now() - (${String(eingabe.vorTagen)} || ' days')::interval, 'MANUAL',
+            ${eingabe.preisart ?? "NORMAL"}, 1, 1, ${eingabe.grundpreis},
+            ${eingabe.preisart === "PROMO" ? sql`now() + interval '3 days'` : sql`null`})
+  `);
+}
+
+describe("holeLetzteErfassungen", () => {
+  it("stellt das Jüngste zuoberst und schneidet bei der Obergrenze ab", async () => {
+    await beobachtungMitZeit({
+      id: "l-alt", storeProductId: "sp-spar", chainId: "c-spar", productId: "p1",
+      grundpreis: 9.6, vorTagen: 3,
+    });
+    await beobachtungMitZeit({
+      id: "l-mittel", storeProductId: "sp2-hofer", chainId: "c-hofer", productId: "p2",
+      grundpreis: 1.19, vorTagen: 2,
+    });
+    await beobachtungMitZeit({
+      id: "l-jung", storeProductId: "sp-billa", chainId: "c-billa", productId: "p1",
+      grundpreis: 10.36, vorTagen: 1,
+    });
+
+    const alle = await holeLetzteErfassungen(umgebung.db);
+    expect(alle.map((e) => e.id)).toEqual(["l-jung", "l-mittel", "l-alt"]);
+
+    // Die Obergrenze schneidet am jüngeren Ende ab, nicht am älteren.
+    const zwei = await holeLetzteErfassungen(umgebung.db, 2);
+    expect(zwei.map((e) => e.id)).toEqual(["l-jung", "l-mittel"]);
+  });
+
+  /*
+   * Die beiden Verknüpfungen. Geprüft wird über **zwei** Produkte in **zwei**
+   * Ketten: Bei nur einer Zeile sähe eine vertauschte Zuordnung genauso aus
+   * wie die richtige.
+   */
+  it("ordnet jeder Zeile ihr Produkt und ihre Kette zu", async () => {
+    await beobachtungMitZeit({
+      id: "l-butter", storeProductId: "sp-spar", chainId: "c-spar", productId: "p1",
+      grundpreis: 9.96, vorTagen: 2,
+    });
+    await beobachtungMitZeit({
+      id: "l-milch", storeProductId: "sp2-hofer", chainId: "c-hofer", productId: "p2",
+      grundpreis: 1.19, vorTagen: 1,
+    });
+
+    const [milch, butter] = await holeLetzteErfassungen(umgebung.db);
+
+    expect(milch).toMatchObject({
+      produktId: "p2", name: "Vollmilch", marke: "Schärdinger",
+      menge: 1000, einheit: "ML", kette: "hofer",
+    });
+    expect(butter).toMatchObject({
+      produktId: "p1", name: "Butter", marke: null,
+      menge: 250, einheit: "G", kette: "spar",
+    });
+  });
+
+  /*
+   * Der Grund für das zweite Ordnungsmerkmal in `orderBy`. Wer mehrere Zeilen
+   * eines Belegs erfasst, erzeugt Beobachtungen im selben Moment — ohne die
+   * Kennung als Stichentscheid käme die Startseite zwischen zwei Aufrufen in
+   * wechselnder Reihenfolge zurück, und niemandem fiele auf, warum.
+   *
+   * Nachgemessen: Streicht man `desc(priceObservation.id)` aus `orderBy`,
+   * scheitert dieser Test.
+   */
+  it("hält die Reihenfolge fest, wenn Beobachtungen denselben Zeitpunkt tragen", async () => {
+    for (const id of ["l-a", "l-b", "l-c"]) {
+      await umgebung.db.execute(sql`
+        insert into price_observation
+          (id, store_product_id, chain_id, product_id, beobachtet_am, quelle, preisart,
+           einzelpreis, zeilensumme, grundpreis)
+        values (${id}, 'sp-spar', 'c-spar', 'p1', timestamptz '2026-08-01 10:00:00+00',
+                'MANUAL', 'NORMAL', 1, 1, 9.96)
+      `);
+    }
+
+    const ersterLauf = await holeLetzteErfassungen(umgebung.db);
+    const zweiterLauf = await holeLetzteErfassungen(umgebung.db);
+
+    expect(ersterLauf.map((e) => e.id)).toEqual(["l-c", "l-b", "l-a"]);
+    expect(zweiterLauf.map((e) => e.id)).toEqual(ersterLauf.map((e) => e.id));
+  });
+
+  /*
+   * `numeric` kommt aus der Datenbank als Zeichenkette. Derselbe Fehler ist in
+   * `holePreisMatrix` schon einmal aufgetreten und dort als Falle kommentiert —
+   * hier hielte ihn sonst nichts fest: `formatiereGrundpreis` ruft `toFixed`,
+   * und auf einer Zeichenkette wirft das erst zur Laufzeit, nicht im Bau.
+   */
+  it("liefert den Grundpreis als Zahl, nicht als Zeichenkette", async () => {
+    await beobachtungMitZeit({
+      id: "l-zahl", storeProductId: "sp-spar", chainId: "c-spar", productId: "p1",
+      grundpreis: 9.96, vorTagen: 1,
+    });
+
+    const [eintrag] = await holeLetzteErfassungen(umgebung.db);
+
+    expect(typeof eintrag.grundpreis).toBe("number");
+    expect(eintrag.grundpreis).toBeCloseTo(9.96, 4);
+    expect(eintrag.beobachtetAm).toBeInstanceOf(Date);
+  });
+
+  /*
+   * Die Liste ist ein Protokoll und filtert deshalb nicht — aber sie muss
+   * sagen, was sie zeigt. Zwei Preise derselben Kette am selben Tag sind kein
+   * Widerspruch, sobald einer als Aktion gekennzeichnet ist.
+   */
+  it("führt die Preisart mit, damit eine Aktion als solche lesbar ist", async () => {
+    await beobachtungMitZeit({
+      id: "l-normal", storeProductId: "sp-spar", chainId: "c-spar", productId: "p1",
+      grundpreis: 9.96, vorTagen: 2,
+    });
+    await beobachtungMitZeit({
+      id: "l-aktion", storeProductId: "sp-spar", chainId: "c-spar", productId: "p1",
+      grundpreis: 7.96, vorTagen: 1, preisart: "PROMO",
+    });
+
+    const [aktion, normal] = await holeLetzteErfassungen(umgebung.db);
+
+    expect(aktion.preisart).toBe("PROMO");
+    expect(normal.preisart).toBe("NORMAL");
+  });
+
+  it("liefert eine leere Liste, solange nichts erfasst wurde", async () => {
+    expect(await holeLetzteErfassungen(umgebung.db)).toEqual([]);
   });
 });

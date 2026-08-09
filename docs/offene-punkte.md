@@ -25,3 +25,16 @@ Bewusst aufgeschobene Kleinigkeiten aus abgeschlossenen Phasen. Nichts hier bloc
 - **Keinerlei Offline-Fähigkeit.** Der Service Worker darf keine angemeldeten Inhalte zwischenspeichern; ohne Seiten im Cache gibt es nichts anzuzeigen, wenn das Netz fehlt.
 - **Drei Dockerfile-Zeilen wurden nie gebaut.** Beide möglichen Fehlerbilder brechen den Bau sichtbar ab, ein gebautes-aber-kaputtes Image kann nicht entstehen.
 - **Die Annahme, dass Coolifys Proxy `x-forwarded-for` sendet**, ist belegt zitiert, aber nicht selbst geprüft. Gepaart mit einer Protokollzeile, an der man erkennt, wenn sie nicht mehr gilt.
+
+## Aus Plan 2 (Katalog & Preis-Engine)
+
+### Warten
+
+- **Jede Anfrage schlägt die Sitzung zweimal nach.** Seit die Navigation im Wurzel-Layout sitzt, ruft dieses `holeSitzung()` und zusätzlich `istBetreiber()`, während die Seite darunter ihr eigenes `requireUser()` ruft. Fachlich richtig, aber eine Abfrage je Anfrage zu viel. `cache()` aus React wäre der übliche Weg; er verändert allerdings `src/lib/sitzung.ts`, auf das `tests/sitzung.test.ts` ausdrücklich zielt — deshalb nicht nebenbei erledigt.
+- **Berührungsgrößen sind nirgends automatisiert geprüft.** `min-h-14` und `min-h-12` stehen im Quelltext und auf den Aufnahmen unter `docs/bilder/`, aber kein Test hält sie fest; ein `min-h-8` fiele erst jemandem im Geschäft auf. Gilt für die ganze App, nicht erst seit Plan 2.
+- **Die Startseite hat kein aktives Ziel in der Navigation.** Folgerichtig — sie ist keiner der drei Bereiche, und die Wortmarke trägt dort `aria-current="page"`. Beim ersten Blick sieht es trotzdem aus, als sei nichts ausgewählt. Falls das stört, ist die Startseite ein viertes Ziel.
+
+### Bewusste Entscheidungen, keine Mängel
+
+- **Die Wortmarke ist am Handy der einzige Weg zurück zur Startseite.** Der Plan nennt drei Ziele (Erfassen, Produkte, Zugriff); die Startseite ist keines davon und wäre damit unerreichbar gewesen — als installierte PWA gibt es keine Zurück-Schaltfläche des Browsers. Die Leiste trägt deshalb unverändert die drei Ziele, und die Wortmarke führt zusätzlich heim.
+- **`holeLetzteErfassungen` filtert keine Preisarten.** Die Liste auf der Startseite ist ein Protokoll, keine Grundlage für eine Berechnung — der `PROMO`-Ausschluss gilt beim Referenzpreis, wo eine Aktion etwas verschieben könnte. Gekennzeichnet wird sie trotzdem, sonst läsen sich zwei Preise derselben Kette am selben Tag wie ein Widerspruch.

@@ -224,6 +224,13 @@ export type LetzteErfassung = {
   menge: number;
   einheit: Basiseinheit;
   kette: string;
+  /**
+   * Warum die Liste sie braucht: Zwei Preise derselben Kette am selben Tag
+   * sehen ohne diese Angabe wie widersprüchliche Daten aus. Mit ihr sind es
+   * ein Regalpreis und eine Aktion — die Unterscheidung, um die es in dieser
+   * App überhaupt geht.
+   */
+  preisart: Preisart;
   grundpreis: number;
   beobachtetAm: Date;
 };
@@ -262,6 +269,7 @@ export async function holeLetzteErfassungen(
       menge: product.menge,
       einheit: product.einheit,
       kette: chain.name,
+      preisart: priceObservation.preisart,
       grundpreis: priceObservation.grundpreis,
       beobachtetAm: priceObservation.beobachtetAm,
     })
@@ -275,11 +283,13 @@ export async function holeLetzteErfassungen(
     .limit(anzahl);
 
   // `numeric` kommt als String aus der Datenbank. Ohne Number(...) stünde auf
-  // der Startseite „9.1600" statt „9,16". `einheit` ist eine Textspalte und
-  // kommt deshalb als `string` — dieselbe Verengung wie in `@/lib/katalog`.
+  // der Startseite „9.1600" statt „9,16". `einheit` und `preisart` sind
+  // Textspalten und kommen deshalb als `string` — dieselbe Verengung wie in
+  // `@/lib/katalog`.
   return zeilen.map((zeile) => ({
     ...zeile,
     einheit: zeile.einheit as Basiseinheit,
+    preisart: zeile.preisart as Preisart,
     grundpreis: Number(zeile.grundpreis),
   }));
 }

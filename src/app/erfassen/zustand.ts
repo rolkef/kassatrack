@@ -40,3 +40,14 @@ export const PREISARTEN: { wert: Preisart; name: string }[] = [
 export function istPreisart(wert: string): wert is Preisart {
   return PREISARTEN.some((eintrag) => eintrag.wert === wert);
 }
+
+/**
+ * Der Anzeigename einer Preisart.
+ *
+ * Steht hier neben `PREISARTEN` und nicht bei den beiden Aufrufern: Das
+ * Erfassungsformular und die Startseite schreiben dieselbe Auskunft, und zwei
+ * Kopien dieser Zuordnung liefen früher oder später auseinander.
+ */
+export function benennePreisart(wert: string): string {
+  return PREISARTEN.find((eintrag) => eintrag.wert === wert)?.name ?? wert;
+}

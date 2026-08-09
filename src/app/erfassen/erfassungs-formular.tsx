@@ -4,7 +4,7 @@ import { useActionState, useId, useRef, useState, type ReactNode } from "react";
 import { Schaltflaeche } from "@/components/ui/schaltflaeche";
 import { formatiereGrundpreis, grundpreis, zerlegeMenge, zerlegePreis } from "@/lib/einheiten";
 import type { Kette } from "@/lib/katalog";
-import { PREISARTEN, type ErfassungsAktion, type Ergebnis } from "./zustand";
+import { benennePreisart, PREISARTEN, type ErfassungsAktion, type Ergebnis } from "./zustand";
 
 /**
  * Preise eintragen — vor dem Regal, einhändig, mehrere hintereinander.
@@ -591,6 +591,3 @@ function benenneKette(ketten: Kette[], kuerzel: string): string {
   return ketten.find((eintrag) => eintrag.kuerzel === kuerzel)?.name ?? kuerzel;
 }
 
-function benennePreisart(wert: string): string {
-  return PREISARTEN.find((eintrag) => eintrag.wert === wert)?.name ?? wert;
-}
