@@ -1,0 +1,231 @@
+import { describe, expect, it } from "bun:test";
+import {
+  formatiereGrundpreis,
+  formatierePackung,
+  grundpreis,
+  MENGE_OBERGRENZE,
+  zerlegeMenge,
+  zerlegePreis,
+} from "@/lib/einheiten";
+
+describe("zerlegeMenge", () => {
+  it("versteht Gramm", () => {
+    expect(zerlegeMenge("250 g")).toEqual({ wert: 250, einheit: "G" });
+  });
+
+  it("rechnet Kilogramm in Gramm um", () => {
+    expect(zerlegeMenge("1 kg")).toEqual({ wert: 1000, einheit: "G" });
+  });
+
+  it("versteht das deutsche Dezimalkomma", () => {
+    expect(zerlegeMenge("1,5 l")).toEqual({ wert: 1500, einheit: "ML" });
+  });
+
+  it("versteht auch den Punkt als Dezimaltrenner", () => {
+    expect(zerlegeMenge("1.5 l")).toEqual({ wert: 1500, einheit: "ML" });
+  });
+
+  it("kommt ohne Leerzeichen aus", () => {
+    expect(zerlegeMenge("0,5L")).toEqual({ wert: 500, einheit: "ML" });
+  });
+
+  it("versteht Stück", () => {
+    expect(zerlegeMenge("6 Stk")).toEqual({ wert: 6, einheit: "STK" });
+  });
+
+  it("liefert null bei Unsinn", () => {
+    expect(zerlegeMenge("ein bisschen")).toBeNull();
+    expect(zerlegeMenge("")).toBeNull();
+    expect(zerlegeMenge("250")).toBeNull();
+  });
+
+  it("liefert null bei null oder negativer Menge", () => {
+    expect(zerlegeMenge("0 g")).toBeNull();
+    expect(zerlegeMenge("-5 g")).toBeNull();
+  });
+
+  it("lehnt mehrdeutige Dezimaltrennzeichen ab (Punkt mit genau 3 Ziffern)", () => {
+    expect(zerlegeMenge("1.234 g")).toBeNull();
+    expect(zerlegeMenge("10.000 g")).toBeNull();
+    expect(zerlegeMenge("2.500 g")).toBeNull();
+  });
+
+  it("akzeptiert Punkt mit ein oder zwei Ziffern als Dezimaltrennzeichen", () => {
+    expect(zerlegeMenge("1.5 l")).toEqual({ wert: 1500, einheit: "ML" });
+    expect(zerlegeMenge("1.25 l")).toEqual({ wert: 1250, einheit: "ML" });
+  });
+
+  it("versteht Komma als Dezimaltrennzeichen auch bei mehrstelliger Vorkommazahl", () => {
+    expect(zerlegeMenge("1,234 g")).toEqual({ wert: 1, einheit: "G" });
+  });
+
+  it("versteht Stück mit vollständiger Schreibweise", () => {
+    expect(zerlegeMenge("6 Stück")).toEqual({ wert: 6, einheit: "STK" });
+  });
+
+  it("versteht alle Unit-Aliase aus der Tabelle", () => {
+    expect(zerlegeMenge("250 gr")).toEqual({ wert: 250, einheit: "G" });
+    expect(zerlegeMenge("1 cl")).toEqual({ wert: 10, einheit: "ML" });
+    expect(zerlegeMenge("5 st")).toEqual({ wert: 5, einheit: "STK" });
+    expect(zerlegeMenge("3 stueck")).toEqual({ wert: 3, einheit: "STK" });
+  });
+
+  it("akzeptiert Punkt mit Leidzahl null vor dezimalen Drei-Ziffern-Blöcken", () => {
+    expect(zerlegeMenge("0.750 l")).toEqual({ wert: 750, einheit: "ML" });
+    expect(zerlegeMenge("0.500 kg")).toEqual({ wert: 500, einheit: "G" });
+    expect(zerlegeMenge("0.100 kg")).toEqual({ wert: 100, einheit: "G" });
+  });
+
+  /*
+   * `product.menge` ist `integer`. Ohne diese Grenze käme die Eingabe bis in
+   * den Einfügevorgang und bräche dort mit `integer out of range` ab.
+   */
+  it("lehnt eine Menge jenseits der Spaltengrenze ab", () => {
+    expect(zerlegeMenge("3000000 kg")).toBeNull();
+    expect(zerlegeMenge(`${MENGE_OBERGRENZE + 1} g`)).toBeNull();
+  });
+
+  it("nimmt eine Menge genau an der Grenze an", () => {
+    expect(zerlegeMenge(`${MENGE_OBERGRENZE} g`)).toEqual({
+      wert: MENGE_OBERGRENZE,
+      einheit: "G",
+    });
+  });
+});
+
+describe("grundpreis", () => {
+  it("rechnet auf ein Kilogramm hoch", () => {
+    expect(grundpreis(2.49, { wert: 250, einheit: "G" })).toBeCloseTo(9.96, 4);
+  });
+
+  it("rechnet auf einen Liter hoch", () => {
+    expect(grundpreis(1.29, { wert: 1500, einheit: "ML" })).toBeCloseTo(0.86, 4);
+  });
+
+  it("rechnet bei Stück auf ein Stück", () => {
+    expect(grundpreis(3.0, { wert: 6, einheit: "STK" })).toBeCloseTo(0.5, 4);
+  });
+
+  it("lehnt negativen Preis ab", () => {
+    expect(grundpreis(-2.49, { wert: 250, einheit: "G" })).toBeNull();
+  });
+
+  it("lehnt null-Preis ab", () => {
+    expect(grundpreis(0, { wert: 250, einheit: "G" })).toBeNull();
+  });
+
+  it("lehnt Menge mit wert 0 ab", () => {
+    expect(grundpreis(2.49, { wert: 0, einheit: "G" })).toBeNull();
+  });
+});
+
+describe("zerlegePreis", () => {
+  it("versteht das österreichische Komma", () => {
+    expect(zerlegePreis("2,49")).toBeCloseTo(2.49, 4);
+  });
+
+  it("versteht auch den Punkt", () => {
+    expect(zerlegePreis("2.49")).toBeCloseTo(2.49, 4);
+  });
+
+  it("versteht ganze Beträge", () => {
+    expect(zerlegePreis("3")).toBeCloseTo(3, 4);
+  });
+
+  it("übersieht Eurozeichen und Leerzeichen", () => {
+    expect(zerlegePreis(" 2,49 € ")).toBeCloseTo(2.49, 4);
+  });
+
+  it("lehnt null ab", () => {
+    expect(zerlegePreis("0")).toBeNull();
+  });
+
+  it("lehnt negative Beträge ab", () => {
+    expect(zerlegePreis("-2,49")).toBeNull();
+  });
+
+  // Wer 2,499 eintippt, hat sich vertippt. Stilles Runden machte daraus eine
+  // Beobachtung, die so nie im Regal stand.
+  it("lehnt mehr als zwei Nachkommastellen ab", () => {
+    expect(zerlegePreis("2,499")).toBeNull();
+  });
+
+  it("lehnt Text ab", () => {
+    expect(zerlegePreis("teuer")).toBeNull();
+  });
+
+  /*
+   * Die Obergrenze ist die Datenbank: `einzelpreis` und `zeilensumme` sind
+   * `numeric(10,4)`. Ohne sie käme „1234567" bis in die Schreibphase durch und
+   * liefe dort in einen Überlauf — nachdem Produkt und Ketten-Zuordnung schon
+   * angelegt wären.
+   */
+  it("nimmt einen Betrag knapp unter der Obergrenze an", () => {
+    expect(zerlegePreis("99999,99")).toBeCloseTo(99999.99, 4);
+  });
+
+  it("lehnt einen Betrag an der Obergrenze ab", () => {
+    expect(zerlegePreis("100000")).toBeNull();
+  });
+
+  it("lehnt einen Betrag jenseits der Obergrenze ab", () => {
+    expect(zerlegePreis("1234567")).toBeNull();
+  });
+
+  it("lehnt eine leere Eingabe ab", () => {
+    expect(zerlegePreis("")).toBeNull();
+  });
+});
+
+describe("formatiereGrundpreis", () => {
+  it("schreibt Euro je Kilogramm", () => {
+    expect(formatiereGrundpreis(9.96, "G")).toBe("9,96 €/kg");
+  });
+
+  it("schreibt Euro je Liter", () => {
+    expect(formatiereGrundpreis(0.86, "ML")).toBe("0,86 €/l");
+  });
+
+  it("schreibt Euro je Stück", () => {
+    expect(formatiereGrundpreis(0.5, "STK")).toBe("0,50 €/Stk");
+  });
+});
+
+/*
+ * Der Gegenweg zu `zerlegeMenge`: Was dort in Basiseinheiten zerlegt wurde,
+ * muss auf der Trefferliste wieder so dastehen, wie es am Etikett steht — sonst
+ * unterscheidet niemand „Butter 250 g" von „Butter 500 g".
+ */
+describe("formatierePackung", () => {
+  it("bleibt unter tausend bei der kleinen Einheit", () => {
+    expect(formatierePackung(250, "G")).toBe("250 g");
+    expect(formatierePackung(500, "ML")).toBe("500 ml");
+  });
+
+  it("stellt ab tausend auf die große Einheit um", () => {
+    expect(formatierePackung(1000, "G")).toBe("1 kg");
+    expect(formatierePackung(1000, "ML")).toBe("1 l");
+  });
+
+  it("schreibt Zwischenwerte mit Komma und ohne Nullen am Ende", () => {
+    expect(formatierePackung(1500, "ML")).toBe("1,5 l");
+    expect(formatierePackung(1250, "G")).toBe("1,25 kg");
+  });
+
+  it("zählt Stück, statt sie umzurechnen", () => {
+    expect(formatierePackung(6, "STK")).toBe("6 Stk");
+    expect(formatierePackung(1000, "STK")).toBe("1000 Stk");
+  });
+
+  /*
+   * Der Rundgang muss aufgehen: Was `zerlegeMenge` aus einer Etikettangabe
+   * macht, muss hier wieder dieselbe Angabe ergeben. Liefe eine der beiden
+   * Seiten auseinander, entstünde beim Erfassen ein anderes Produkt als das,
+   * das die Suchliste anzeigt.
+   */
+  it.each(["250 g", "1 kg", "1,5 l", "500 ml", "6 Stk"])("führt „%s“ hin und zurück", (angabe) => {
+    const zerlegt = zerlegeMenge(angabe);
+    expect(zerlegt).not.toBeNull();
+    expect(formatierePackung(zerlegt!.wert, zerlegt!.einheit)).toBe(angabe);
+  });
+});

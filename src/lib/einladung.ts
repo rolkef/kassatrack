@@ -128,10 +128,19 @@ export async function entzieheZugang(db: ZugriffsDb, email: string): Promise<voi
   // dieses Feld aus, und die Zeile bleibt als Spur erhalten, dass eingeladen
   // wurde. Nur die noch offenen — eine bereits eingelöste Einladung trägt ihren
   // Zeitpunkt, und der soll nicht überschrieben werden.
+  /*
+   * `lower(invite.email)` aus demselben Grund wie oben bei `user.email`, und
+   * hier sogar zwingender: `allowed_email` hat eine Bedingung, die
+   * Kleinschreibung erzwingt — `invite` hat keine. Eine von Hand eingefügte
+   * Einladung mit Großbuchstaben überlebte den Entzug sonst, und die betroffene
+   * Person läse noch einmal „deine Adresse ist freigeschaltet", bevor die
+   * Anmeldung sie abweist. `docs/deployment-coolify.md` bringt genau das bei,
+   * Zeilen von Hand einzufügen.
+   */
   await db
     .update(invite)
     .set({ eingeloestAm: new Date() })
-    .where(and(eq(invite.email, normalisiert), isNull(invite.eingeloestAm)));
+    .where(and(eq(sql`lower(${invite.email})`, normalisiert), isNull(invite.eingeloestAm)));
 }
 
 export type Zugang = {

@@ -1,6 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Martian_Mono, Wix_Madefor_Text } from "next/font/google";
+import { AppNavigation } from "@/components/app-navigation";
+import { db } from "@/db";
 import { PAPIER } from "@/lib/huelle";
+import { holeSitzung } from "@/lib/sitzung";
+import { cn } from "@/lib/utils";
+import { istBetreiber } from "@/lib/zugriff";
 import "./globals.css";
 
 /*
@@ -65,17 +70,44 @@ export const viewport: Viewport = {
   themeColor: PAPIER,
 };
 
-export default function RootLayout({
+/*
+ * Die Navigation steht hier und nicht in jeder Seite, weil sie über allen
+ * Seiten liegt — und weil die Entscheidung, ob „Zugriff" überhaupt existiert,
+ * auf den Server gehört.
+ *
+ * Bewusst `holeSitzung` und nicht `requireUser`: Dieses Layout umschließt auch
+ * die Anmeldeseite. Ein `requireUser` würde dort auf `/anmelden` umleiten —
+ * also auf sich selbst — und die Anmeldung in eine Endlosschleife schicken.
+ * Ohne Sitzung gibt es keine Leiste, denn es gibt nichts zu navigieren.
+ *
+ * `darfVerwalten` wird hier ausgerechnet und nicht im Client geprüft: Wer nicht
+ * betreibt, bekommt das Ziel gar nicht erst geschickt. Die eigentliche Sperre
+ * sitzt weiterhin auf der Seite selbst und in ihren Server-Aktionen — diese
+ * Zeile blendet aus, sie schützt nicht.
+ */
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const sitzung = await holeSitzung();
+  const darfVerwalten = sitzung ? await istBetreiber(db, sitzung.user.email) : false;
+
   return (
     <html
       lang="de-AT"
       className={`h-full antialiased ${anzeige.variable} ${text.variable} ${zahlen.variable}`}
     >
-      <body className="flex min-h-full flex-col bg-hintergrund font-sans text-vordergrund">
+      <body
+        className={cn(
+          "flex min-h-full flex-col bg-hintergrund font-sans text-vordergrund",
+          // Platz für die feste Leiste am unteren Rand — sonst verschwindet die
+          // letzte Zeile jeder Seite dahinter. Nur wenn die Leiste da ist:
+          // Sonst stünde die Anmeldeseite außermittig.
+          sitzung && "pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:pb-0",
+        )}
+      >
+        {sitzung ? <AppNavigation darfVerwalten={darfVerwalten} /> : null}
         {children}
       </body>
     </html>

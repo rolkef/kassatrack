@@ -1,9 +1,27 @@
 import { and, eq } from "drizzle-orm";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { NodePgDatabase, NodePgQueryResultHKT } from "drizzle-orm/node-postgres";
+import type { PgDatabase } from "drizzle-orm/pg-core";
 import { user } from "@/db/schema/auth";
 import { allowedEmail } from "@/db/schema/zugriff";
 
 export type ZugriffsDb = NodePgDatabase<Record<string, never>>;
+
+/**
+ * Ein Datenbank-Handle, das auch eine **laufende Transaktion** sein darf.
+ *
+ * `db.transaction(async (tx) => …)` reicht kein `NodePgDatabase` herein, sondern
+ * eine `PgTransaction`. Beide erben von `PgDatabase`, und genau das ist hier der
+ * gemeinsame Nenner: Wer diesen Typ verlangt, lässt sich sowohl von außerhalb
+ * als auch von innerhalb einer Transaktion aufrufen.
+ *
+ * Bewusst **nicht** als Erweiterung von `ZugriffsDb`: Den Typ reicht
+ * `src/lib/auth.ts` an den Drizzle-Adapter von Better Auth weiter, und der
+ * verlangt das konkrete Handle. Deshalb zwei Namen statt eines aufgeweiteten.
+ *
+ * `ZugriffsDb` ist auf diesen Typ zuweisbar, alle bisherigen Aufrufer bleiben
+ * also unverändert gültig.
+ */
+export type DbOderTransaktion = PgDatabase<NodePgQueryResultHKT, Record<string, never>>;
 
 export class ZugriffVerweigert extends Error {
   /**
