@@ -44,6 +44,24 @@ Browserkonsole war bei allen Aufnahmen leer.
 | `erfassen-handy-abgewiesen.png` | Vom Server abgewiesene Mengenangabe: Meldung über der Schaltfläche, Beanstandung am Feld, alle Eingaben und die gewählte Kette bleiben stehen. |
 | `erfassen-desktop.png` | Dasselbe Formular bei 1280 px — fünf Ketten und vier Preisarten je in einer Reihe. |
 
+## Produktsuche und Produktdetail (Plan 2, Task 8)
+
+Aufgenommen gegen den Produktionsbau (`bun run build && bun run start`) bei
+doppelter Pixeldichte. Die Browserkonsole war bei allen Aufnahmen leer — keine
+Verstöße gegen die Sicherheitsrichtlinie.
+
+| Datei | Was zu sehen ist |
+|---|---|
+| `produkte-handy-leer.png` | Suche ohne Eingabe bei 390×844. Der leere Zustand sagt, was hier künftig steht und woher es kommt — er sagt nicht „keine Treffer". |
+| `produkte-handy-tippfehler.png` | „Buter" findet „Butter". Der Grund für die Trigramm-Suche: Vor dem Regal wird einhändig getippt. |
+| `produkte-handy-ohne-treffer.png` | Erfolglose Suche. Sand statt Rot, mit drei Wegen weiter — darunter der Link in die Erfassung. Keine Sackgasse. |
+| `produktdetail-handy-ruhig.png` | Die ruhige Ebene: Kette, Preis, Ersparnis, Gültig-bis — die Antwort auf „Ist das gerade billig?" passt auf einen Handybildschirm. Die Tabelle liegt zugeklappt darunter. |
+| `produktdetail-handy-tabelle.png` | Dieselbe Seite mit aufgeklappter Tabelle. Alle vier Zustände nebeneinander: Billa veraltet (170 Tage, Sand-Marke), Spar frisch mit drei Preisen, Hofer mit „Aktion bis 15.08.", Lidl „keine Daten" statt einer Null. |
+| `produktdetail-handy-ohne-preis.png` | Produkt im Katalog, aber ohne jeden Preis. Die Tabelle bleibt stehen und zeigt, was hier ausgefüllt wird. |
+| `produktdetail-handy-selber-sieger.png` | Heute-Sieger und Referenz-Sieger sind dieselbe Kette — dann steht das als eigener Satz da, statt zweimal derselbe Name. Keine Aktion, deshalb keine Gültig-bis-Zeile. |
+| `produkte-desktop.png` | Suche bei 1280 px. Feld und Schaltfläche in einer Reihe, „Butter" vor „Buttermilch" — die Sortierung nach Ähnlichkeit. |
+| `produktdetail-desktop.png` | Detailseite bei 1280 px, Tabelle offen. Die Marke „veraltet" steht hier in derselben Zeile wie Zahl und Datenalter. |
+
 ## PWA-Grundgerüst (Task 9)
 
 | Datei | Was zu sehen ist |

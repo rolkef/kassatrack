@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   formatiereGrundpreis,
+  formatierePackung,
   grundpreis,
   MENGE_OBERGRENZE,
   zerlegeMenge,
@@ -187,5 +188,44 @@ describe("formatiereGrundpreis", () => {
 
   it("schreibt Euro je Stück", () => {
     expect(formatiereGrundpreis(0.5, "STK")).toBe("0,50 €/Stk");
+  });
+});
+
+/*
+ * Der Gegenweg zu `zerlegeMenge`: Was dort in Basiseinheiten zerlegt wurde,
+ * muss auf der Trefferliste wieder so dastehen, wie es am Etikett steht — sonst
+ * unterscheidet niemand „Butter 250 g" von „Butter 500 g".
+ */
+describe("formatierePackung", () => {
+  it("bleibt unter tausend bei der kleinen Einheit", () => {
+    expect(formatierePackung(250, "G")).toBe("250 g");
+    expect(formatierePackung(500, "ML")).toBe("500 ml");
+  });
+
+  it("stellt ab tausend auf die große Einheit um", () => {
+    expect(formatierePackung(1000, "G")).toBe("1 kg");
+    expect(formatierePackung(1000, "ML")).toBe("1 l");
+  });
+
+  it("schreibt Zwischenwerte mit Komma und ohne Nullen am Ende", () => {
+    expect(formatierePackung(1500, "ML")).toBe("1,5 l");
+    expect(formatierePackung(1250, "G")).toBe("1,25 kg");
+  });
+
+  it("zählt Stück, statt sie umzurechnen", () => {
+    expect(formatierePackung(6, "STK")).toBe("6 Stk");
+    expect(formatierePackung(1000, "STK")).toBe("1000 Stk");
+  });
+
+  /*
+   * Der Rundgang muss aufgehen: Was `zerlegeMenge` aus einer Etikettangabe
+   * macht, muss hier wieder dieselbe Angabe ergeben. Liefe eine der beiden
+   * Seiten auseinander, entstünde beim Erfassen ein anderes Produkt als das,
+   * das die Suchliste anzeigt.
+   */
+  it.each(["250 g", "1 kg", "1,5 l", "500 ml", "6 Stk"])("führt „%s“ hin und zurück", (angabe) => {
+    const zerlegt = zerlegeMenge(angabe);
+    expect(zerlegt).not.toBeNull();
+    expect(formatierePackung(zerlegt!.wert, zerlegt!.einheit)).toBe(angabe);
   });
 });

@@ -155,6 +155,46 @@ export function grundpreis(gesamtpreis: number, menge: Menge): number | null {
 }
 
 export function formatiereGrundpreis(wert: number, einheit: Basiseinheit): string {
-  const zahl = wert.toFixed(2).replace(".", ",");
-  return `${zahl} €/${BEZUGSNAME[einheit]}`;
+  return `${formatiereBetrag(wert)} €/${bezugsName(einheit)}`;
+}
+
+/**
+ * Ein Betrag ohne Einheit — für Tabellenspalten, die ihre Einheit einmal im
+ * Kopf tragen statt in jeder Zelle.
+ *
+ * Steht hier neben `formatiereGrundpreis` und nicht in der Tabelle, damit
+ * beide dieselbe Zahl gleich schreiben. Zwei Formatierungen, die um eine
+ * Nachkommastelle auseinanderlaufen, fielen niemandem auf.
+ */
+export function formatiereBetrag(wert: number): string {
+  return wert.toFixed(2).replace(".", ",");
+}
+
+/** „kg", „l" oder „Stk" — worauf sich ein Grundpreis bezieht. */
+export function bezugsName(einheit: Basiseinheit): string {
+  return BEZUGSNAME[einheit];
+}
+
+/**
+ * Die Gebindegröße, wie sie am Etikett steht — aus den intern gehaltenen
+ * Basiseinheiten zurückgerechnet.
+ *
+ * Das ist auf der Suchliste kein Beiwerk, sondern das Unterscheidungsmerkmal:
+ * `findeProdukt` führt „Butter 250 g" und „Butter 500 g" zu zwei Produkten
+ * zusammenzuführen ausdrücklich nicht. Ohne die Größe stünden auf der
+ * Trefferliste zwei Zeilen namens „Butter" und die Wahl zwischen ihnen wäre
+ * ein Ratespiel.
+ *
+ * Ab 1000 wird auf die größere Einheit umgestellt: „1 kg" liest sich, „1000 g"
+ * muss man umrechnen. Drei Nachkommastellen, weil `zerlegeMenge` auf ganze
+ * Basiseinheiten rundet und mehr deshalb nie entstehen kann.
+ */
+export function formatierePackung(menge: number, einheit: Basiseinheit): string {
+  if (einheit === "STK") return `${menge} Stk`;
+
+  const klein = einheit === "G" ? "g" : "ml";
+  if (menge < 1000) return `${menge} ${klein}`;
+
+  const gross = (menge / 1000).toFixed(3).replace(/\.?0+$/, "").replace(".", ",");
+  return `${gross} ${BEZUGSNAME[einheit]}`;
 }

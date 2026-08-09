@@ -171,6 +171,75 @@ export async function sichereKettenProdukt(
   return nachgereicht.id;
 }
 
+/**
+ * Wie ähnlich ein Name der Eingabe sein muss, um als Treffer zu gelten.
+ *
+ * 0,3 ist der Wert, den `pg_trgm` selbst voreinstellt, und er trägt hier: Aus
+ * „Buter" wird „Butter" (0,625), aus „Zahnbürste" wird keine Butter (0,0).
+ * Deutlich tiefer, und die Liste füllt sich mit Waren, die zufällig ein paar
+ * Buchstaben teilen; deutlich höher, und der Tippfehler vor dem Regal findet
+ * nichts mehr — genau der Fall, für den es diese Suche gibt.
+ */
+export const AEHNLICHKEITS_SCHWELLE = 0.3;
+
+/** Wie viele Treffer eine Suche höchstens liefert. */
+export const TREFFER_OBERGRENZE = 50;
+
+/**
+ * Sucht Produkte nach Ähnlichkeit über Name und Marke.
+ *
+ * Trigramm-Ähnlichkeit statt `like`, weil vor dem Regal einhändig getippt wird:
+ * „Buter" muss „Butter" finden. Fände es das nicht, legte die Person das
+ * Produkt ein zweites Mal an — und stünde danach vor zwei Produkten mit je
+ * einem halben Preisvergleich. Das ist derselbe Schaden, den `findeProdukt`
+ * auf dem Schreibpfad verhindert.
+ *
+ * Die Schwelle steht ausdrücklich als Vergleich im `where` und nicht als
+ * `%`-Operator: Der liest die Sitzungsvariable `pg_trgm.similarity_threshold`,
+ * die je nach Verbindung anders stehen kann. Eine Suche, deren Strenge davon
+ * abhängt, welche Verbindung aus dem Pool kommt, wäre nicht nachvollziehbar.
+ *
+ * Ein leerer Begriff liefert nichts statt allem. Die Suchseite ruft ohne
+ * Eingabe genauso auf wie mit; der ganze Katalog wäre dort keine Antwort.
+ *
+ * Kein Index: Bei einigen hundert Produkten liest Postgres die Tabelle
+ * schneller, als es einen Index auswerten könnte. Sobald der Katalog wächst,
+ * gehört ein GIN-Index ins Schema —
+ * `create index product_name_trgm on product using gin (name gin_trgm_ops)`,
+ * dazu einer auf `marke`. Der greift allerdings nur beim `%`-Operator, nicht
+ * beim Vergleich hier; wer den Index einführt, muss beides zusammen umstellen.
+ */
+export async function sucheProdukte(db: DbOderTransaktion, begriff: string): Promise<Produkt[]> {
+  const gesucht = begriff.trim();
+  if (gesucht === "") return [];
+
+  // `coalesce`, weil similarity(null, …) null ergibt und `greatest` das zwar
+  // überspringt, der Vergleich im `where` damit aber für ein Produkt ohne
+  // Marke unbestimmt bliebe.
+  const aehnlichkeit = sql<number>`greatest(
+    similarity(${product.name}, ${gesucht}),
+    similarity(coalesce(${product.marke}, ''), ${gesucht})
+  )`;
+
+  const zeilen = await db
+    .select({
+      id: product.id,
+      name: product.name,
+      marke: product.marke,
+      menge: product.menge,
+      einheit: product.einheit,
+    })
+    .from(product)
+    .where(sql`${aehnlichkeit} >= ${AEHNLICHKEITS_SCHWELLE}`)
+    // Der Name als zweites Ordnungsmerkmal: Bei gleicher Ähnlichkeit — etwa
+    // „Butter 250 g" und „Butter 500 g" — wäre die Reihenfolge sonst dem
+    // Zufall überlassen und änderte sich zwischen zwei Aufrufen.
+    .orderBy(sql`${aehnlichkeit} desc`, asc(product.name))
+    .limit(TREFFER_OBERGRENZE);
+
+  return zeilen as Produkt[];
+}
+
 export async function holeProdukt(db: DbOderTransaktion, id: string): Promise<Produkt | null> {
   const [zeile] = await db
     .select({
