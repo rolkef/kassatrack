@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, gt, gte, lte } from "drizzle-orm";
-import { storeProduct } from "@/db/schema/katalog";
+import { chain, product, storeProduct } from "@/db/schema/katalog";
 import { offer, priceObservation, type Preisart, type Quelle } from "@/db/schema/preise";
+import type { Basiseinheit } from "@/lib/einheiten";
 import { holeKetten, type Kette } from "@/lib/katalog";
 import { median } from "@/lib/median";
 import type { DbOderTransaktion } from "@/lib/zugriff";
@@ -213,6 +214,74 @@ export async function holePreisMatrix(
   }
 
   return zeilen;
+}
+
+export type LetzteErfassung = {
+  id: string;
+  produktId: string;
+  name: string;
+  marke: string | null;
+  menge: number;
+  einheit: Basiseinheit;
+  kette: string;
+  grundpreis: number;
+  beobachtetAm: Date;
+};
+
+/** Wie viele Einträge die Startseite höchstens zeigt. */
+export const STARTSEITE_EINTRAEGE = 8;
+
+/**
+ * Die zuletzt erfassten Preise, quer über alle Produkte und Ketten.
+ *
+ * Das ist der Einstieg der App und bewusst kein Kennzahlen-Feld: Was zuletzt
+ * eingetragen wurde, beantwortet „läuft das hier?" und „was habe ich neulich
+ * verglichen?" in einer Liste, die man auch wieder antippen kann. Eine große
+ * Zahl über einem Balken beantwortete keine der beiden Fragen.
+ *
+ * Ohne Zeitfenster, anders als bei `holePreisMatrix`: Dort geht es darum, ob
+ * ein Preis noch etwas über heute aussagt, hier darum, was zuletzt passiert
+ * ist. Wer ein halbes Jahr nichts erfasst hat, soll seinen letzten Eintrag
+ * sehen und nicht eine leere Seite, die aussieht wie ein Fehler.
+ *
+ * Alle Preisarten, auch `PROMO`: Die Liste ist ein Protokoll, keine Grundlage
+ * für eine Berechnung. Der Ausschluss in `holePreisMatrix` gilt dort, weil eine
+ * Aktion den Referenzpreis nicht verschieben darf — hier gibt es nichts zu
+ * verschieben.
+ */
+export async function holeLetzteErfassungen(
+  db: DbOderTransaktion,
+  anzahl: number = STARTSEITE_EINTRAEGE,
+): Promise<LetzteErfassung[]> {
+  const zeilen = await db
+    .select({
+      id: priceObservation.id,
+      produktId: product.id,
+      name: product.name,
+      marke: product.marke,
+      menge: product.menge,
+      einheit: product.einheit,
+      kette: chain.name,
+      grundpreis: priceObservation.grundpreis,
+      beobachtetAm: priceObservation.beobachtetAm,
+    })
+    .from(priceObservation)
+    .innerJoin(product, eq(priceObservation.productId, product.id))
+    .innerJoin(chain, eq(priceObservation.chainId, chain.id))
+    // Die Kennung als zweites Merkmal: Zwei Beobachtungen im selben Moment —
+    // beim Erfassen mehrerer Zeilen aus einem Beleg keine Seltenheit — kämen
+    // sonst zwischen zwei Aufrufen in wechselnder Reihenfolge.
+    .orderBy(desc(priceObservation.beobachtetAm), desc(priceObservation.id))
+    .limit(anzahl);
+
+  // `numeric` kommt als String aus der Datenbank. Ohne Number(...) stünde auf
+  // der Startseite „9.1600" statt „9,16". `einheit` ist eine Textspalte und
+  // kommt deshalb als `string` — dieselbe Verengung wie in `@/lib/katalog`.
+  return zeilen.map((zeile) => ({
+    ...zeile,
+    einheit: zeile.einheit as Basiseinheit,
+    grundpreis: Number(zeile.grundpreis),
+  }));
 }
 
 /**

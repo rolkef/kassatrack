@@ -88,6 +88,43 @@ describe("Referenzpreis", () => {
     expect(spar?.referenzpreis).toBeCloseTo(9.96, 4);
   });
 
+  /*
+   * Abnahmepunkt 3 aus Plan 2, an der vollen Strecke geprüft.
+   *
+   * `tests/median.test.ts` zeigt bereits, dass `median` gegen einen Ausreißer
+   * unempfindlich ist — aber auf der reinen Funktion, ohne dass je ein
+   * Tippfehler in der Datenbank stand. Damit blieb offen, was der Plan
+   * eigentlich verlangt: dass ein verschriebener Preis den **Referenzpreis**
+   * nicht verschiebt. Wer `median` in `holePreisMatrix` durch einen Mittelwert
+   * ersetzte, hätte den Unterschied an keinem Test gemerkt.
+   *
+   * 299 statt 2,99 sind bei 250 g Butter 1196 €/kg. Ein Mittelwert läge damit
+   * bei über 247, der Median bleibt bei 9,96.
+   */
+  it("verschiebt sich nicht, wenn ein Preis vertippt erfasst wurde", async () => {
+    const vertippt = 299 / 0.25;
+
+    for (const preis of [9.6, 9.8, 9.96, 10.4, vertippt]) {
+      await schreibeBeobachtung(umgebung.db, {
+        storeProductId: "sp-spar",
+        chainId: "c-spar",
+        productId: "p1",
+        quelle: "MANUAL",
+        preisart: "NORMAL",
+        einzelpreis: preis === vertippt ? 299 : 2.49,
+        zeilensumme: preis === vertippt ? 299 : 2.49,
+        grundpreis: preis,
+      });
+    }
+
+    const spar = (await holePreisMatrix(umgebung.db, "p1")).find((z) => z.kette.kuerzel === "spar");
+    expect(spar?.referenzpreis).toBeCloseTo(9.96, 4);
+    // Die eigentliche Aussage: Der Ausreißer zieht den Wert nicht nach oben.
+    expect(spar?.referenzpreis).toBeLessThan(11);
+    // Er wird mitgezählt — unterdrückt wird er nicht, nur überstimmt.
+    expect(spar?.anzahl).toBe(5);
+  });
+
   it("ignoriert Beobachtungen, die älter als das Fenster sind", async () => {
     await umgebung.db.execute(sql`
       insert into price_observation
@@ -123,6 +160,60 @@ describe("Referenzpreis", () => {
 
     const spar = (await holePreisMatrix(umgebung.db, "p1")).find((z) => z.kette.kuerzel === "spar");
     expect(spar?.referenzpreis).toBeCloseTo(10, 4);
+  });
+});
+
+/*
+ * Abnahmepunkt 5 aus Plan 2: „von der Datenbank verweigert, nicht nur vom
+ * Formular".
+ *
+ * `tests/preise-schema.test.ts` prüft dieselbe Bedingung bereits — aber an
+ * einer Tabelle, die dort von Hand per DDL angelegt wird. Das belegt, dass eine
+ * Tabelle *mit* dieser Bedingung ablehnt, nicht dass die ausgelieferte Tabelle
+ * sie trägt. Genau diese Lücke schließt der Test hier: Diese Datei legt das
+ * Schema über `migrate()` an, also über dieselben Dateien wie die
+ * Produktionsdatenbank. Fiele die Bedingung aus der Migration heraus, bliebe
+ * der andere Test grün und dieser würde rot.
+ *
+ * Geschrieben wird unmittelbar über Drizzle, am Formular und an der
+ * Server-Aktion vorbei — der Weg, den ein Skript oder eine spätere
+ * Schnittstelle nehmen würde.
+ */
+describe("Aktion ohne Gültig-bis, gegen das migrierte Schema", () => {
+  it("wird von der Datenbank abgelehnt", async () => {
+    const fehler = await faengtFehler(() =>
+      umgebung.db.execute(sql`
+        insert into price_observation
+          (id, store_product_id, chain_id, product_id, quelle, preisart,
+           einzelpreis, zeilensumme, grundpreis)
+        values ('ohne-ende', 'sp-hofer', 'c-hofer', 'p1', 'MANUAL', 'PROMO', 1.49, 1.49, 5.96)
+      `),
+    );
+
+    expect(fehler).toBeDefined();
+    /*
+     * Auf den Namen der Bedingung geprüft und nicht bloß darauf, dass
+     * irgendetwas geworfen wurde: Ein Tippfehler in der Kennung oder eine
+     * verletzte Fremdschlüsselbeziehung würde ebenfalls werfen und diesen Test
+     * grün halten, ohne dass die Bedingung noch existiert. Drizzle verpackt den
+     * Fehler von `pg`, der Name steht deshalb erst in der Ursache.
+     */
+    const ursache = (fehler as { cause?: { constraint?: string } }).cause;
+    expect(ursache?.constraint).toBe("preis_aktion_hat_ende");
+  });
+
+  it("geht mit Gültig-bis durch — die Bedingung sperrt nicht pauschal", async () => {
+    const fehler = await faengtFehler(() =>
+      umgebung.db.execute(sql`
+        insert into price_observation
+          (id, store_product_id, chain_id, product_id, quelle, preisart,
+           einzelpreis, zeilensumme, grundpreis, aktion_gueltig_bis)
+        values ('mit-ende', 'sp-hofer', 'c-hofer', 'p1', 'MANUAL', 'PROMO', 1.49, 1.49, 5.96,
+                now() + interval '3 days')
+      `),
+    );
+
+    expect(fehler).toBeUndefined();
   });
 });
 

@@ -227,6 +227,34 @@ describe("entzieheZugang", () => {
     );
   });
 
+  /*
+   * Der Eintrag aus `docs/offene-punkte.md` — die andere Richtung als der Test
+   * darüber. Dort war die *Eingabe* gemischt geschrieben, hier steht die
+   * gemischte Schreibweise in der *Tabelle*.
+   *
+   * Das ist kein konstruierter Fall: `allowed_email` hat eine Bedingung, die
+   * Kleinschreibung erzwingt, `invite` hat keine, und
+   * `docs/deployment-coolify.md` bringt bei, Zeilen von Hand einzufügen. Vor
+   * der Behebung überlebte eine so entstandene Einladung den Entzug, und die
+   * Einladungsseite versicherte der ausgesperrten Person noch einmal, ihre
+   * Adresse sei freigeschaltet.
+   *
+   * Deshalb per rohem SQL eingefügt und nicht über `erzeugeEinladung`: Die
+   * Funktion normalisiert selbst, über sie ließe sich die Lage gar nicht
+   * herstellen.
+   */
+  it("entwertet eine Einladung, die gemischt geschrieben in der Tabelle steht", async () => {
+    await umgebung.db.execute(sql`
+      insert into invite (id, email, token, erstellt_von, erstellt_am, gueltig_bis)
+      values ('i-gross', 'Neu@Example.AT', 'token-gross', 'chris', now(), now() + interval '7 days')
+    `);
+
+    await entzieheZugang(umgebung.db, "neu@example.at");
+
+    const [zeile] = await umgebung.db.select().from(invite).where(eq(invite.id, "i-gross"));
+    expect(zeile.eingeloestAm).not.toBeNull();
+  });
+
   it("lässt die Einladungen anderer Adressen offen", async () => {
     await erzeugeEinladung(umgebung.db, { email: "neu@example.at", erstelltVon: "chris" });
     const { token } = await erzeugeEinladung(umgebung.db, {

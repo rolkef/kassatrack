@@ -4,11 +4,9 @@ Bewusst aufgeschobene Kleinigkeiten aus abgeschlossenen Phasen. Nichts hier bloc
 
 ## Aus Phase 1 (Fundament & Auth, PR #1)
 
-### Zuerst nachziehen
+### Erledigt
 
-**Entzug vergleicht die Einladung buchstabengenau.** `entzieheZugang` in `src/lib/einladung.ts` löscht die Freischaltung und die Sitzungen unabhängig von Groß- und Kleinschreibung, entwertet die Einladung aber mit einem exakten Vergleich. `allowed_email` hat eine Bedingung, die Kleinschreibung erzwingt — `invite` hat keine. Ein von Hand eingefügter Einladungs-Eintrag mit Großbuchstaben überlebt daher den Entzug, und die betroffene Person liest wieder „deine Adresse ist freigeschaltet", bevor sie abgewiesen wird.
-
-Relevant, weil `docs/deployment-coolify.md` beibringt, Zeilen von Hand einzufügen. Behebung: `lower(invite.email)` im Vergleich, oder eine Bedingung auf der Spalte. Ein Ausdruck.
+- **Entzug verglich die Einladung buchstabengenau.** Behoben in Plan 2, Task 9: `entzieheZugang` vergleicht jetzt über `lower(invite.email)`, wie es `holeZugaenge` und die Sitzungssuche schon taten. Ein Test in `tests/einladung.test.ts` fügt eine gemischt geschriebene Zeile per rohem SQL ein und hält den Fall fest.
 
 ### Warten
 

@@ -17,7 +17,7 @@ Verzeichnis geleert, damit kein veraltetes Bild stehen bleibt.
 | `anmelden-fokus.png` | Sichtbarer Fokusring |
 | `anmelden-laden.png` | Laufende Anmeldung, beide Wege gesperrt |
 
-## Zugriffsverwaltung und Einladung (Task 8)
+## Zugriffsverwaltung und Einladung (Task 8 — die vier `zugriff-*` neu gezogen in Task 9)
 
 | Datei | Was zu sehen ist |
 |---|---|
@@ -27,7 +27,28 @@ Verzeichnis geleert, damit kein veraltetes Bild stehen bleibt.
 | `zugriff-ohne-betreiber.png` | Installation, in der niemand als betreibend eingetragen ist |
 | `einladung-handy.png` | Einladungsseite mit frischem Token, ausgeloggt |
 
-## Preiserfassung (Plan 2, Task 7)
+## Einstieg und Navigation (Plan 2, Task 9)
+
+Seit Task 9 trägt jede angemeldete Seite die Navigationsleiste — am Handy unten,
+ab `sm` oben. **Alle Aufnahmen der angemeldeten Seiten wurden deshalb in Task 9
+neu gezogen**, auch die aus Task 7 und 8; die alten zeigten die Bildschirme ohne
+Leiste. Unberührt blieben nur die Aufnahmen ohne Sitzung (Anmeldung, Einladung,
+PWA) — dort gibt es keine Leiste, weil es nichts zu navigieren gibt.
+
+| Datei | Was zu sehen ist |
+|---|---|
+| `start-handy.png` | Die Startseite bei 390×844: Wortmarke, Begrüßung, der Weg zum Erfassen, darunter die zuletzt erfassten Preise mit „heute"/„gestern" statt eines Datums. Kein Ziel der Leiste ist aktiv — die Startseite ist keiner der drei Bereiche. |
+| `start-handy-leer.png` | Dieselbe Seite ohne einen einzigen erfassten Preis. Der leere Zustand sagt, was hier künftig steht; die Zählung neben der Überschrift fehlt, statt „0" zu behaupten. |
+| `start-desktop.png` | Die Startseite bei 1280×900. Die Leiste sitzt oben, die Wortmarke fluchtet mit der Überschrift darunter. |
+| `navigation-handy-ohne-betreiber.png` | Dieselbe Startseite für eine Person **ohne** Betreiber-Rolle: nur zwei Ziele. „Zugriff" ist nicht ausgeblendet, sondern steht gar nicht im ausgelieferten HTML — nachgemessen. |
+
+Der aktive Bereich ist an **vier** Dingen zu erkennen, von denen nur eines die
+Farbe ist: dem Balken an der Kante zum Inhalt (am Handy oben, am Desktop unten),
+dem gefüllten statt umrissenen Symbol, der kräftigeren Schrift und
+`aria-current="page"`. Am deutlichsten zu sehen in `erfassen-handy-leer.png`
+(Handy) und `erfassen-desktop.png` (Desktop).
+
+## Preiserfassung (Plan 2, Task 7 — neu gezogen in Task 9)
 
 Aufgenommen gegen den Produktionsbau (`bun run build && bun run start`), nicht
 gegen den Entwicklungsserver: Nur dort gilt die CSP ohne `'unsafe-eval'`. Die
@@ -44,7 +65,7 @@ Browserkonsole war bei allen Aufnahmen leer.
 | `erfassen-handy-abgewiesen.png` | Vom Server abgewiesene Mengenangabe: Meldung über der Schaltfläche, Beanstandung am Feld, alle Eingaben und die gewählte Kette bleiben stehen. |
 | `erfassen-desktop.png` | Dasselbe Formular bei 1280 px — fünf Ketten und vier Preisarten je in einer Reihe. |
 
-## Produktsuche und Produktdetail (Plan 2, Task 8)
+## Produktsuche und Produktdetail (Plan 2, Task 8 — neu gezogen in Task 9)
 
 Aufgenommen gegen den Produktionsbau (`bun run build && bun run start`) bei
 doppelter Pixeldichte. Die Browserkonsole war bei allen Aufnahmen leer — keine
