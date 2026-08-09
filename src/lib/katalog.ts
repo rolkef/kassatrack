@@ -44,6 +44,7 @@ export type Produkt = {
   marke: string | null;
   menge: number;
   einheit: Basiseinheit;
+  bildSchluessel: string | null;
 };
 
 export async function legeProduktAn(
@@ -65,6 +66,7 @@ export async function legeProduktAn(
       marke: product.marke,
       menge: product.menge,
       einheit: product.einheit,
+      bildSchluessel: product.bildSchluessel,
     });
 
   return zeile as Produkt;
@@ -102,6 +104,7 @@ export async function findeProdukt(
       marke: product.marke,
       menge: product.menge,
       einheit: product.einheit,
+      bildSchluessel: product.bildSchluessel,
     })
     .from(product)
     .where(
@@ -228,6 +231,7 @@ export async function sucheProdukte(db: DbOderTransaktion, begriff: string): Pro
       marke: product.marke,
       menge: product.menge,
       einheit: product.einheit,
+      bildSchluessel: product.bildSchluessel,
     })
     .from(product)
     .where(sql`${aehnlichkeit} >= ${AEHNLICHKEITS_SCHWELLE}`)
@@ -248,6 +252,7 @@ export async function holeProdukt(db: DbOderTransaktion, id: string): Promise<Pr
       marke: product.marke,
       menge: product.menge,
       einheit: product.einheit,
+      bildSchluessel: product.bildSchluessel,
     })
     .from(product)
     .where(eq(product.id, id))
