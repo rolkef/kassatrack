@@ -8,10 +8,11 @@ import {
   schreibeBild,
 } from "@/lib/produktbilder";
 
+let wurzel: string;
 let verzeichnis: string;
 
 afterEach(async () => {
-  if (verzeichnis) await rm(verzeichnis, { recursive: true, force: true });
+  if (wurzel) await rm(wurzel, { recursive: true, force: true });
 });
 
 describe("erzeugeBildSchluessel", () => {
@@ -26,7 +27,8 @@ describe("erzeugeBildSchluessel", () => {
 
 describe("schreibeBild / lesePfadZuBild", () => {
   it("schreibt die Bytes unverändert und liefert denselben Pfad beim Lesen", async () => {
-    verzeichnis = await mkdtemp(join(tmpdir(), "produktbilder-"));
+    wurzel = await mkdtemp(join(tmpdir(), "produktbilder-"));
+    verzeichnis = wurzel;
     const schluessel = erzeugeBildSchluessel("9001234567892");
     const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
 
@@ -38,7 +40,8 @@ describe("schreibeBild / lesePfadZuBild", () => {
   });
 
   it("legt das Zielverzeichnis an, falls es noch nicht existiert", async () => {
-    verzeichnis = join(await mkdtemp(join(tmpdir(), "produktbilder-")), "tiefer", "verschachtelt");
+    wurzel = await mkdtemp(join(tmpdir(), "produktbilder-"));
+    verzeichnis = join(wurzel, "tiefer", "verschachtelt");
     const schluessel = erzeugeBildSchluessel("9001234567892");
 
     await schreibeBild(verzeichnis, schluessel, Buffer.from([1, 2, 3]));
