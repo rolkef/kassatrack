@@ -5,6 +5,7 @@ import { db } from "@/db";
 import {
   formatiereGrundpreis,
   GRUNDPREIS_OBERGRENZE,
+  GRUNDPREIS_UNTERGRENZE,
   grundpreis,
   zerlegeMenge,
   zerlegePreis,
@@ -134,6 +135,19 @@ export async function erfasse(_vorher: Ergebnis | undefined, formular: FormData)
     return fehler(
       "Aus diesem Preis und dieser Menge ergäbe sich ein Grundpreis, den KassaTrack nicht " +
         "abbilden kann. Prüf, ob Menge und Preis zusammenpassen.",
+    );
+  }
+  /*
+   * Dasselbe am anderen Ende: Ein sehr kleiner Preis auf eine sehr große Menge
+   * ergibt einen Grundpreis unterhalb der vierten Nachkommastelle. Der wird
+   * beim Schreiben auf 0,0000 gerundet und läuft in `preis_positiv` — wieder
+   * ein technischer Fehler, wo ein Satz hingehört. Die Begründung für die
+   * Grenze steht bei `GRUNDPREIS_UNTERGRENZE`.
+   */
+  if (wert < GRUNDPREIS_UNTERGRENZE) {
+    return fehler(
+      "Aus diesem Preis und dieser Menge ergäbe sich ein Grundpreis von null. Prüf die Menge — " +
+        "sie ist im Verhältnis zum Preis zu groß.",
     );
   }
 

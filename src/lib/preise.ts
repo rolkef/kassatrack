@@ -128,7 +128,10 @@ export async function schreibeAngebot(
 }
 
 /** Referenzpreis und aktueller Bestpreis, eine Zeile je Kette. */
-export async function holePreisMatrix(db: DbOderTransaktion, productId: string): Promise<PreisZeile[]> {
+export async function holePreisMatrix(
+  db: DbOderTransaktion,
+  productId: string,
+): Promise<PreisZeile[]> {
   const ketten = await holeKetten(db);
   const grenze = new Date(Date.now() - BEOBACHTUNGSFENSTER_TAGE * 86_400_000);
   const jetzt = new Date();

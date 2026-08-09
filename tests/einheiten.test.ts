@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { formatiereGrundpreis, grundpreis, zerlegeMenge, zerlegePreis } from "@/lib/einheiten";
+import {
+  formatiereGrundpreis,
+  grundpreis,
+  MENGE_OBERGRENZE,
+  zerlegeMenge,
+  zerlegePreis,
+} from "@/lib/einheiten";
 
 describe("zerlegeMenge", () => {
   it("versteht Gramm", () => {
@@ -67,6 +73,22 @@ describe("zerlegeMenge", () => {
     expect(zerlegeMenge("0.750 l")).toEqual({ wert: 750, einheit: "ML" });
     expect(zerlegeMenge("0.500 kg")).toEqual({ wert: 500, einheit: "G" });
     expect(zerlegeMenge("0.100 kg")).toEqual({ wert: 100, einheit: "G" });
+  });
+
+  /*
+   * `product.menge` ist `integer`. Ohne diese Grenze käme die Eingabe bis in
+   * den Einfügevorgang und bräche dort mit `integer out of range` ab.
+   */
+  it("lehnt eine Menge jenseits der Spaltengrenze ab", () => {
+    expect(zerlegeMenge("3000000 kg")).toBeNull();
+    expect(zerlegeMenge(`${MENGE_OBERGRENZE + 1} g`)).toBeNull();
+  });
+
+  it("nimmt eine Menge genau an der Grenze an", () => {
+    expect(zerlegeMenge(`${MENGE_OBERGRENZE} g`)).toEqual({
+      wert: MENGE_OBERGRENZE,
+      einheit: "G",
+    });
   });
 });
 

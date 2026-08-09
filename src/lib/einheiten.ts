@@ -31,6 +31,16 @@ const BEZUG: Record<Basiseinheit, number> = { G: 1000, ML: 1000, STK: 1 };
 const BEZUGSNAME: Record<Basiseinheit, string> = { G: "kg", ML: "l", STK: "Stk" };
 
 /**
+ * Obergrenze für die Menge in Basiseinheiten.
+ *
+ * `product.menge` ist `integer`. Eine Menge darüber ließe sich gar nicht
+ * ablegen — der Einfügevorgang bräche mit `integer out of range` ab, nachdem
+ * alle Prüfungen durch sind. Eine Menge ist damit nicht bloß groß, sondern
+ * keine Menge; deshalb steht die Grenze hier und nicht bei der Erfassung.
+ */
+export const MENGE_OBERGRENZE = 2_147_483_647;
+
+/**
  * Zerlegt eine Eingabe wie `"250 g"` oder `"1,5l"`.
  *
  * Liefert `null` statt zu werfen, weil das hier ein Benutzereingabefeld ist und
@@ -56,7 +66,10 @@ export function zerlegeMenge(eingabe: string): Menge | null {
   const gefunden = EINHEITEN[treffer[2]];
   if (!gefunden || !Number.isFinite(zahl) || zahl <= 0) return null;
 
-  return { wert: Math.round(zahl * gefunden.faktor), einheit: gefunden.einheit };
+  const wert = Math.round(zahl * gefunden.faktor);
+  if (wert > MENGE_OBERGRENZE) return null;
+
+  return { wert, einheit: gefunden.einheit };
 }
 
 /**
@@ -109,6 +122,23 @@ export function zerlegePreis(eingabe: string): number | null {
  * ohnehin ein Tippfehler.
  */
 export const GRUNDPREIS_OBERGRENZE = 1_000_000;
+
+/**
+ * Untergrenze für den Grundpreis.
+ *
+ * Beide Spalten halten vier Nachkommastellen, der kleinste Betrag, den sie
+ * darstellen können, ist also 0,0001. Alles darunter wird beim Schreiben auf
+ * 0,0000 gerundet und läuft in die Bedingung `preis_positiv` — als technischer
+ * Fehler mitten in der Transaktion, obwohl Preis und Menge für sich zulässig
+ * waren. Erreichbar ist das über das freie Mengenfeld: 0,01 € auf 1000 kg sind
+ * ein Tausendstel Cent je Kilo.
+ *
+ * Bewusst 0,0001 und nicht 0,00005 (der kleinste Wert, der beim Runden noch
+ * überlebt): Ein Grundpreis, der erst durch das Runden entsteht, weicht um bis
+ * zur Hälfte von dem ab, was gerechnet wurde. Das ist kein Preis, den jemand
+ * vergleichen will.
+ */
+export const GRUNDPREIS_UNTERGRENZE = 0.0001;
 
 /**
  * Preis je Kilogramm, Liter oder Stück.

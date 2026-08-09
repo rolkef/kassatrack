@@ -51,8 +51,22 @@ let angemeldet = true;
  * und der Fehler erschiene in einer Datei, die mit dieser nichts zu tun hat.
  * Ausführliche Begründung in `tests/verwaltung-aktionen.test.ts`.
  */
+/**
+ * Ob `revalidatePath` wie üblich nichts tut oder wirft.
+ *
+ * Eine Attrappe, die nur ein `() => {}` ist, macht die Reihenfolge in der
+ * Aktion unsichtbar: Ob das Verwerfen des Zwischenspeichers im Schreib-`try`
+ * liegt oder dahinter, merkt kein Test, solange es nie scheitert.
+ */
+let cacheWirft = false;
+
 const echtesCache = await import("next/cache");
-await mock.module("next/cache", () => ({ ...echtesCache, revalidatePath: () => {} }));
+await mock.module("next/cache", () => ({
+  ...echtesCache,
+  revalidatePath: () => {
+    if (cacheWirft) throw new Error("Zwischenspeicher nicht erreichbar");
+  },
+}));
 
 // `@/db` exportiert nur `db` — hier ist die Streuung entbehrlich.
 await mock.module("@/db", () => ({ db: umgebung.db as ZugriffsDb }));
@@ -116,6 +130,7 @@ beforeEach(async () => {
   // hier nie gefüllt, verhindert aber jedes Leeren ohne sie.
   await umgebung.db.execute(sql`truncate table product cascade`);
   angemeldet = true;
+  cacheWirft = false;
 });
 
 describe("erfasse", () => {
@@ -293,6 +308,27 @@ describe("erfasse", () => {
     expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
   });
 
+  /*
+   * Nicht „irgendein Fehler", sondern **dieser Satz**.
+   *
+   * Der Test darüber bliebe auch ohne die Prüfung in der Aktion grün: Dann
+   * bräche `schreibeAngebot` an seinem eigenen Zeitraum-Wächter ab, die
+   * Transaktion rollte zurück, `art` wäre weiterhin „fehler" und alle vier
+   * Tabellen blieben leer. Nur die Meldung wäre eine andere — „Versuch es noch
+   * einmal", zu etwas, das jedes Mal identisch scheitert. Genau das ist der
+   * Unterschied, den die Prüfung ausmacht, also gehört er hierher.
+   */
+  it("nennt beim vergangenen Aktionsende den Grund statt eines technischen Fehlers", async () => {
+    const ergebnis = await erfasse(
+      undefined,
+      formular({ ...gueltig, preisart: "PROMO", gueltigBis: "2020-01-01" }),
+    );
+
+    expect(ergebnis.art).toBe("fehler");
+    if (ergebnis.art !== "fehler") return;
+    expect(ergebnis.meldung).toContain("Vergangenheit");
+  });
+
   it("weist einen Preis jenseits der Datenbankgrenze ab, ohne etwas anzulegen", async () => {
     /*
      * `einzelpreis` ist `numeric(10,4)` und muss betragsmäßig unter 10^6
@@ -327,6 +363,43 @@ describe("erfasse", () => {
     expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
   });
 
+  /*
+   * Dasselbe am unteren Ende, und auch hier zählt die Meldung mit: Ohne die
+   * Untergrenze käme die Eingabe bis in die Schreibphase, der auf 0,0000
+   * gerundete Grundpreis liefe in `preis_positiv`, und der Nutzer bekäme
+   * „Versuch es noch einmal" für etwas, das jedes Mal identisch scheitert. Die
+   * Transaktion räumte zwar auf — `UNBERUEHRT` gälte also weiterhin —, aber
+   * ratlos wäre er trotzdem.
+   */
+  it("weist einen Grundpreis unterhalb der Datenbankgrenze ab, ohne etwas anzulegen", async () => {
+    const ergebnis = await erfasse(
+      undefined,
+      formular({ ...gueltig, preis: "0,01", menge: "1000 kg" }),
+    );
+
+    expect(ergebnis.art).toBe("fehler");
+    if (ergebnis.art !== "fehler") return;
+    expect(ergebnis.meldung).toContain("Grundpreis von null");
+    expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
+  });
+
+  /*
+   * Eine Menge jenseits von `product.menge integer` wird schon beim Zerlegen
+   * abgewiesen und bekommt damit den Satz des Mengenfeldes. Ohne die Grenze
+   * liefe sie in `integer out of range`.
+   */
+  it("weist eine Menge jenseits der Spaltengrenze ab, ohne etwas anzulegen", async () => {
+    const ergebnis = await erfasse(
+      undefined,
+      formular({ ...gueltig, preis: "1000", menge: "3000000 kg" }),
+    );
+
+    expect(ergebnis.art).toBe("fehler");
+    if (ergebnis.art !== "fehler") return;
+    expect(ergebnis.meldung).toContain("Mengenangabe");
+    expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
+  });
+
   it("verlangt eine Anmeldung", async () => {
     angemeldet = false;
 
@@ -334,6 +407,28 @@ describe("erfasse", () => {
 
     expect(fehler).toBeDefined();
     expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
+  });
+
+  /*
+   * Der Preis steht bereits in der Datenbank, wenn `revalidatePath` an die
+   * Reihe kommt. Läge der Aufruf im Schreib-`try`, machte ein Fehler beim
+   * Verwerfen des Zwischenspeichers daraus die Meldung „nicht gespeichert" —
+   * der Nutzer schickte noch einmal, und die zweite Beobachtung verschöbe den
+   * Median dieser Kette. Genau deshalb hat der Aufruf sein eigenes `catch`,
+   * und genau das nagelt dieser Test fest.
+   */
+  it("meldet Erfolg, auch wenn das Verwerfen des Zwischenspeichers scheitert", async () => {
+    cacheWirft = true;
+    try {
+      const ergebnis = await erfasse(undefined, formular(gueltig));
+
+      expect(ergebnis.art).toBe("erfolg");
+      expect(await anzahl("price_observation")).toBe(1);
+    } finally {
+      // `mock.module` gilt für den ganzen Lauf; die Fahne darf diesen Test
+      // nicht überleben, auch wenn eine Behauptung darin wirft.
+      cacheWirft = false;
+    }
   });
 });
 
