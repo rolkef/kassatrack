@@ -39,6 +39,10 @@ export async function generateMetadata({
 }: {
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
+  // Auch hier, nicht nur in der Seite: `generateMetadata` läuft als eigener
+  // Aufruf und würde sonst für jede Anfrage ohne Sitzung die Datenbank fragen.
+  await requireUser();
+
   const produkt = await ladeProdukt((await params).id);
   return {
     title: `${produkt.name} — KassaTrack`,

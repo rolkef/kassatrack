@@ -88,6 +88,19 @@ export const offer = pgTable(
     storeProductId: text("store_product_id")
       .notNull()
       .references(() => storeProduct.id, { onDelete: "cascade" }),
+    /**
+     * Grundpreis in € je Kilogramm, Liter oder Stück — **kein** Regalpreis.
+     *
+     * Dieselbe Einheit wie `price_observation.grundpreis`, und das ist keine
+     * Kür: `holePreisMatrix` bildet `Math.min` aus dieser Spalte und dem
+     * Referenzpreis, der ein Median über `grundpreis` ist. Ein Regalpreis hier
+     * wäre eine gültige `numeric(10,4)`, würde von `offer_preis_positiv`
+     * durchgelassen und ließe jede Aktion unschlagbar billig aussehen — der
+     * Fehler ist still und kehrt die Kernaussage der App um. Flugblätter und
+     * Ketten-Schnittstellen veröffentlichen Regalpreise; wer von dort einliest,
+     * rechnet vor dem Schreiben um. Der Name der Spalte sagt das nicht,
+     * `schreibeAngebot` in `@/lib/preise` wiederholt es deshalb.
+     */
     preis: numeric("preis", { precision: 10, scale: 4 }).notNull(),
     gueltigVon: timestamp("gueltig_von", { withTimezone: true }).notNull(),
     gueltigBis: timestamp("gueltig_bis", { withTimezone: true }).notNull(),

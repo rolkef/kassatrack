@@ -5,6 +5,7 @@ import {
   bestesAngebot,
   holeLetzteErfassungen,
   holePreisMatrix,
+  schreibeAngebot,
   schreibeBeobachtung,
 } from "@/lib/preise";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
@@ -360,6 +361,78 @@ describe("schreibeBeobachtung — Zuordnung schützen", () => {
       }),
     );
     expect(fehler).toBeDefined();
+  });
+});
+
+/*
+ * Geschrieben wird hier unmittelbar über `schreibeAngebot`/`schreibeBeobachtung`
+ * — an `zerlegePreis` und an der Server-Aktion vorbei. Genau diesen Weg nimmt
+ * eine Flugblatt- oder Schnittstellen-Einspeisung, und dort greift die
+ * Begrenzung aus `src/app/erfassen/aktionen.ts` nicht.
+ */
+describe("Nicht-endliche Preise am Schreibpfad", () => {
+  async function angebote(): Promise<number> {
+    const ergebnis = await umgebung.db.execute(sql`select count(*)::int as n from offer`);
+    return (ergebnis.rows as { n: number }[])[0].n;
+  }
+
+  for (const wert of [Number.NaN, Number.POSITIVE_INFINITY]) {
+    it(`weist ${wert} in schreibeAngebot ab, ohne etwas anzulegen`, async () => {
+      const fehler = await faengtFehler(() =>
+        schreibeAngebot(umgebung.db, {
+          storeProductId: "sp-hofer",
+          preis: wert,
+          gueltigVon: new Date(Date.now() - 86_400_000),
+          gueltigBis: new Date(Date.now() + 86_400_000),
+          quelle: "FLYER",
+        }),
+      );
+
+      expect(fehler).toBeDefined();
+      expect((fehler as Error).message).toContain("endliche Zahl");
+      expect(await angebote()).toBe(0);
+    });
+
+    it(`weist ${wert} in schreibeBeobachtung ab, ohne etwas anzulegen`, async () => {
+      const fehler = await faengtFehler(() =>
+        schreibeBeobachtung(umgebung.db, {
+          storeProductId: "sp-hofer", chainId: "c-hofer", productId: "p1",
+          quelle: "FLYER", preisart: "NORMAL", einzelpreis: 1, zeilensumme: 1, grundpreis: wert,
+        }),
+      );
+
+      expect(fehler).toBeDefined();
+      expect((fehler as Error).message).toContain("endliche Zahl");
+
+      const hofer = (await holePreisMatrix(umgebung.db, "p1")).find(
+        (z) => z.kette.kuerzel === "hofer",
+      );
+      expect(hofer?.anzahl).toBe(0);
+    });
+  }
+
+  /*
+   * Warum der Wächter im Code stehen muss und nicht in der Datenbank stehen
+   * kann: `numeric` nimmt 'NaN' an, und `NaN > 0` ist in Postgres wahr —
+   * `offer_preis_positiv` lässt den Wert also durch. Danach gewinnt die Zeile
+   * jeden Vergleich, den sie verlieren müsste, weil `NaN < x` immer falsch ist.
+   * Dieser Test schreibt an `schreibeAngebot` vorbei und zeigt den Schaden, den
+   * der Wächter davor verhindert.
+   */
+  it("belegt, dass die Datenbank kein Auffangnetz ist", async () => {
+    const fehler = await faengtFehler(() =>
+      umgebung.db.execute(sql`
+        insert into offer (id, store_product_id, preis, gueltig_von, gueltig_bis, quelle)
+        values ('nan', 'sp-billa', 'NaN', now() - interval '1 day', now() + interval '1 day',
+                'FLYER')
+      `),
+    );
+    expect(fehler).toBeUndefined();
+
+    const zeilen = await holePreisMatrix(umgebung.db, "p1");
+    const { heuteSieger } = bestesAngebot(zeilen);
+    expect(heuteSieger?.kette.kuerzel).toBe("billa");
+    expect(Number.isNaN(heuteSieger?.bestpreis)).toBe(true);
   });
 });
 

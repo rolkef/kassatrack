@@ -28,6 +28,26 @@ export type PreisZeile = {
   bestpreis: number | null;
 };
 
+/**
+ * Weist NaN und Unendlich ab, bevor sie in eine `numeric`-Spalte geraten.
+ *
+ * Die Datenbank ist hier kein Auffangnetz: `numeric` nimmt den Wert `'NaN'`
+ * klaglos an, und `NaN > 0` ist in Postgres **wahr** — die Bedingungen
+ * `preis_positiv` und `offer_preis_positiv` lassen ihn also durch. Beim Lesen
+ * gewinnt so ein Wert dann Vergleiche, die er verlieren müsste: `Math.min`
+ * liefert NaN, und in `bestesAngebot` ist `NaN < x` immer falsch, weshalb die
+ * Zeile als Sieger stehen bleibt und die Oberfläche wörtlich „NaN" anzeigt.
+ *
+ * Der Wächter steht in den Schreibfunktionen und nicht bloß in der Erfassungs-
+ * Aktion, weil das die Grenze ist, die Plan 3 mit Flugblatt- und
+ * Schnittstellen-Daten überschreitet — an der Oberfläche vorbei.
+ */
+function pruefeZahl(feld: string, wert: number): void {
+  if (!Number.isFinite(wert)) {
+    throw new Error(`${feld} muss eine endliche Zahl sein — bekommen: ${wert}.`);
+  }
+}
+
 export async function schreibeBeobachtung(
   db: DbOderTransaktion,
   eingabe: {
@@ -44,6 +64,11 @@ export async function schreibeBeobachtung(
     aktionGueltigBis?: Date | null;
   },
 ): Promise<void> {
+  pruefeZahl("einzelpreis", eingabe.einzelpreis);
+  pruefeZahl("zeilensumme", eingabe.zeilensumme);
+  pruefeZahl("grundpreis", eingabe.grundpreis);
+  if (eingabe.menge !== undefined) pruefeZahl("menge", eingabe.menge);
+
   // storeProductId, chainId und productId sind drei unabhängige Fremdschlüssel
   // — keine Datenbank-Bedingung hält sie zusammen. Ohne diese Prüfung könnte
   // ein Aufrufer eine storeProductId der einen Kette mit der chainId einer
@@ -98,11 +123,23 @@ export async function schreibeBeobachtung(
  * `offer_zeitraum` würde einen verdrehten Zeitraum zwar ebenfalls ablehnen,
  * aber als technischen Fehler mitten in einer Transaktion. Ein Aufrufer soll
  * am Namen der Funktion ablesen können, was sie verlangt.
+ *
+ * **`preis` ist ein Grundpreis in € je Kilogramm, Liter oder Stück — nicht der
+ * Regalpreis der Packung.** Das ist die wichtigste Zusage dieser Funktion und
+ * die einzige, die keine Prüfbedingung absichert: 1,49 € für ein 250-g-Packerl
+ * wäre eine völlig gültige `numeric(10,4)`. `holePreisMatrix` vergleicht den
+ * Wert per `Math.min` gegen den Referenzpreis, und der ist der Median über
+ * `price_observation.grundpreis`, also €/kg. Wer hier einen Regalpreis
+ * einträgt, lässt jede Aktion wie das Angebot des Jahrhunderts aussehen und
+ * kippt damit genau die Unterscheidung, für die es diese App gibt. Wer aus
+ * Flugblättern oder Ketten-Schnittstellen einliest, rechnet also vorher um —
+ * `zerlegePreis` aus `@/lib/einheiten` macht das für die Erfassung.
  */
 export async function schreibeAngebot(
   db: DbOderTransaktion,
   eingabe: {
     storeProductId: string;
+    /** Grundpreis in € je Kilogramm, Liter oder Stück — **kein** Regalpreis. */
     preis: number;
     gueltigVon: Date;
     gueltigBis: Date;
@@ -110,6 +147,8 @@ export async function schreibeAngebot(
     bedingung?: string | null;
   },
 ): Promise<void> {
+  pruefeZahl("preis", eingabe.preis);
+
   if (eingabe.gueltigBis <= eingabe.gueltigVon) {
     throw new Error(
       `Ein Angebot muss enden, nachdem es begonnen hat — ` +

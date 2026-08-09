@@ -38,9 +38,9 @@ PWA) — dort gibt es keine Leiste, weil es nichts zu navigieren gibt.
 | Datei | Was zu sehen ist |
 |---|---|
 | `start-handy.png` | Die Startseite bei 390×844: Wortmarke, Begrüßung, der Weg zum Erfassen, darunter die zuletzt erfassten Preise mit „heute"/„gestern" statt eines Datums. Kein Ziel der Leiste ist aktiv — die Startseite ist keiner der drei Bereiche. |
-| `start-handy-leer.png` | Dieselbe Seite ohne einen einzigen erfassten Preis. Der leere Zustand sagt, was hier künftig steht; die Zählung neben der Überschrift fehlt, statt „0" zu behaupten. |
+| `start-handy-leer.png` | Die Startseite ohne einen einzigen erfassten Preis. Der leere Zustand sagt, was hier künftig steht; die Zählung neben der Überschrift fehlt, statt „0" zu behaupten. Aufgenommen in einer Sitzung **ohne** Betreiber-Rolle, die Leiste trägt deshalb zwei Ziele statt der drei aus `start-handy.png` — das ist der Rollenunterschied, nicht ein Mangel des leeren Zustands. |
 | `start-desktop.png` | Die Startseite bei 1280×900. Die Leiste sitzt oben, die Wortmarke fluchtet mit der Überschrift darunter. |
-| `navigation-handy-ohne-betreiber.png` | Dieselbe Startseite für eine Person **ohne** Betreiber-Rolle: nur zwei Ziele. „Zugriff" ist nicht ausgeblendet, sondern steht gar nicht im ausgelieferten HTML — nachgemessen. |
+| `navigation-handy-ohne-betreiber.png` | Dieselbe Startseite für eine Person **ohne** Betreiber-Rolle: nur zwei Ziele. „Zugriff" ist nicht ausgeblendet, sondern steht gar nicht im ausgelieferten HTML — nachgemessen. Die Liste darunter stammt aus einem Durchgang **vor** der Kennzeichnung der Aktionen und zeigt sie deshalb noch ohne den Zusatz; belegt ist hier die Leiste, nicht der Listeninhalt. |
 
 Der aktive Bereich ist an **vier** Dingen zu erkennen, von denen nur eines die
 Farbe ist: dem Balken an der Kante zum Inhalt (am Handy oben, am Desktop unten),
@@ -57,9 +57,9 @@ Browserkonsole war bei allen Aufnahmen leer.
 | Datei | Was zu sehen ist |
 |---|---|
 | `erfassen-handy-leer.png` | Leeres Formular bei 390×844. Die Grundpreis-Fläche sagt, was dort erscheinen wird; alle Platzhalter beginnen mit „z. B." und sind dadurch nicht mit Eingaben zu verwechseln. |
-| `erfassen-handy-fokus.png` | Nach einmal Tabulator: sichtbarer Fokusring auf dem Kettenfeld. Das Optionsfeld selbst liegt unsichtbar darunter, der Ring sitzt trotzdem am sichtbaren Feld. |
+| `erfassen-handy-fokus.png` | Sichtbarer Fokusring auf dem ersten Kettenfeld — dem ersten Ziel **innerhalb** des Formulars. Davor liegen Wortmarke und die Ziele der Navigationsleiste, die seit Task 9 im Quelltext vor dem Inhalt stehen (`src/app/layout.tsx`); es braucht dorthin also mehrere Tabulatoren, nicht einen. Das Optionsfeld selbst liegt unsichtbar darunter, der Ring sitzt trotzdem am sichtbaren Feld. |
 | `erfassen-handy-live.png` | Menge und Preis eingetragen, Grundpreis (9,96 €/kg) **vor** dem Speichern berechnet. Die gewählte Kette bleibt auch unter dem Zeiger lesbar. |
-| `erfassen-handy-gespeichert.png` | Nach dem Speichern: Kette bleibt gewählt, Produktfelder leer, die Fläche wechselt in die Bestätigung. Darunter die Liste „Erfasst 1". Der Satz zur bleibenden Kette steht nur beim ersten Mal. |
+| `erfassen-handy-gespeichert.png` | Nach dem Speichern: die Produktfelder sind leer, die Grundpreis-Fläche wechselt in die Bestätigung („Butter bei Spar gespeichert", 9,96 €/kg), die Preisart steht wieder auf „Normal". Der Satz zur bleibenden Kette steht nur beim ersten Mal. Der Ausschnitt beginnt unterhalb der Ketten-Reihe und endet über der Liste — dass die Kette gewählt bleibt und darunter „Erfasst 1" steht, zeigt `erfassen-handy-mehrere.png`. |
 | `erfassen-handy-aktion.png` | Preisart „Aktion" gewählt, dadurch erscheint „Gültig bis". |
 | `erfassen-handy-mehrere.png` | Zweiter Preis desselben Einkaufs. Liste mit zwei Zeilen, das Jüngste zuoberst, die Aktion als solche gekennzeichnet. Preisart steht wieder auf „Normal". |
 | `erfassen-handy-abgewiesen.png` | Vom Server abgewiesene Mengenangabe: Meldung über der Schaltfläche, Beanstandung am Feld, alle Eingaben und die gewählte Kette bleiben stehen. |
@@ -80,7 +80,7 @@ Verstöße gegen die Sicherheitsrichtlinie.
 | `produktdetail-handy-tabelle.png` | Dieselbe Seite mit aufgeklappter Tabelle. Alle vier Zustände nebeneinander: Billa veraltet (170 Tage, Sand-Marke), Spar frisch mit drei Preisen, Hofer mit „Aktion bis 15.08.", Lidl „keine Daten" statt einer Null. |
 | `produktdetail-handy-ohne-preis.png` | Produkt im Katalog, aber ohne jeden Preis. Die Tabelle bleibt stehen und zeigt, was hier ausgefüllt wird. |
 | `produktdetail-handy-selber-sieger.png` | Heute-Sieger und Referenz-Sieger sind dieselbe Kette — dann steht das als eigener Satz da, statt zweimal derselbe Name. Keine Aktion, deshalb keine Gültig-bis-Zeile. |
-| `produkte-desktop.png` | Suche bei 1280 px. Feld und Schaltfläche in einer Reihe, „Butter" vor „Buttermilch" — die Sortierung nach Ähnlichkeit. |
+| `produkte-desktop.png` | Suche bei 1280 px. Feld und Schaltfläche in einer Reihe, darunter die Trefferzahl und der eine Treffer, den die Entwicklungsdaten hergaben. Die Sortierung nach Ähnlichkeit — „Butter" vor „Buttermilch" — belegt dieses Bild **nicht**; sie steht in `tests/katalog-suche.test.ts` („sortiert den ähnlicheren Treffer nach vorn"), wo beide Produkte angelegt und die Reihenfolge festgenagelt wird. |
 | `produktdetail-desktop.png` | Detailseite bei 1280 px, Tabelle offen. Die Marke „veraltet" steht hier in derselben Zeile wie Zahl und Datenalter. |
 
 ## PWA-Grundgerüst (Task 9)

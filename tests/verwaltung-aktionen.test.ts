@@ -112,7 +112,23 @@ await mock.module("next/cache", () => ({ ...echtesCache, revalidatePath: () => {
  */
 await mock.module("@/db", () => ({ db: umgebung.db as ZugriffsDb }));
 
-const echteSitzung = await import("@/lib/sitzung");
+/*
+ * Der Anhang `?echt` schützt die Streuung gegen die Dateireihenfolge.
+ *
+ * `tests/erfassen-aktionen.test.ts` ersetzt `@/lib/sitzung` ebenfalls für den
+ * ganzen Lauf und sortiert davor. Ein gewöhnliches
+ * `await import("@/lib/sitzung")` bekäme hier deshalb deren Attrappe statt des
+ * echten Moduls und würde ihr `requireUser` — samt der dortigen, längst
+ * geschlossenen Wegwerf-Datenbank — als Teil von `@/lib/sitzung` weiterreichen.
+ * Grün bliebe es heute nur, weil keine Aktion dieser Datei `requireUser` ruft.
+ * Der Anhang macht daraus einen eigenen Modul-Eintrag, den keine Attrappe
+ * trifft; dieselbe Ausweichstelle nutzt `tests/sitzung.test.ts`.
+ *
+ * Der Bezeichner steht in einer Variablen, weil TypeScript ihn sonst auflösen
+ * wollte und den Anhang nicht kennt.
+ */
+const echterBezeichner = "@/lib/sitzung?echt";
+const echteSitzung = (await import(echterBezeichner)) as typeof import("@/lib/sitzung");
 await mock.module("@/lib/sitzung", () => ({
   ...echteSitzung,
   // Nur das Nachschlagen der Sitzung ist gestellt — die Rollenprüfung darunter

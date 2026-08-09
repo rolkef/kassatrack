@@ -71,7 +71,22 @@ await mock.module("next/cache", () => ({
 // `@/db` exportiert nur `db` — hier ist die Streuung entbehrlich.
 await mock.module("@/db", () => ({ db: umgebung.db as ZugriffsDb }));
 
-const echteSitzung = await import("@/lib/sitzung");
+/*
+ * Der Anhang `?echt` ist kein Zierrat, sondern die einzige Fassung, die
+ * unabhängig von der Dateireihenfolge stimmt.
+ *
+ * `tests/verwaltung-aktionen.test.ts` ersetzt `@/lib/sitzung` ebenfalls für den
+ * ganzen Lauf. Ein gewöhnliches `await import("@/lib/sitzung")` bekäme hier
+ * also je nach Reihenfolge die Attrappe der anderen Datei und würde sie in die
+ * eigene hineinstreuen — beide Dateien wären dann gegenseitig davon abhängig,
+ * wer zuerst läuft. Der Anhang macht daraus einen eigenen Modul-Eintrag, den
+ * keine Attrappe trifft; dieselbe Ausweichstelle nutzt `tests/sitzung.test.ts`.
+ *
+ * Der Bezeichner steht in einer Variablen, weil TypeScript ihn sonst auflösen
+ * wollte und den Anhang nicht kennt.
+ */
+const echterBezeichner = "@/lib/sitzung?echt";
+const echteSitzung = (await import(echterBezeichner)) as typeof import("@/lib/sitzung");
 await mock.module("@/lib/sitzung", () => ({
   ...echteSitzung,
   requireUser: async () => {
