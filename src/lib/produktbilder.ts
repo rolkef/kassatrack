@@ -37,11 +37,34 @@ export async function schreibeBild(
 }
 
 /**
+ * Hosts, von denen `ladeUndSpeichereBild` Bilder abruft. `bildUrl` stammt aus
+ * dem crowdsourced Feld `image_front_url` von Open Food Facts — jede Person
+ * kann einen dortigen Produkteintrag bearbeiten und dieses Feld auf eine
+ * beliebige URL setzen (internes Ziel, Cloud-Metadaten-Endpunkt, `localhost`).
+ * Ohne diese Prüfung würde die Anwendung serverseitig gegen eine beliebige
+ * Adresse anfragen und die Antwort unter eigenem Namen als Bild ausliefern
+ * (SSRF). Live gegen die echte API verifiziert: `image_front_url` verweist
+ * unabhängig von der abgefragten Länder-Subdomain immer auf
+ * `images.openfoodfacts.org`.
+ */
+const OFF_BILD_HOSTS = new Set(["images.openfoodfacts.org"]);
+
+function istErlaubteBildUrl(bildUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(bildUrl);
+  } catch {
+    return false;
+  }
+  return url.protocol === "https:" && OFF_BILD_HOSTS.has(url.hostname);
+}
+
+/**
  * Lädt ein Produktbild herunter, legt es im konfigurierten Verzeichnis ab
  * und trägt den Schlüssel im Produkt ein. Ein Fehlschlag — Netzwerk, HTTP-
- * Fehler, was auch immer — liefert `null` und lässt `bild_schluessel` leer,
- * statt die Erfassung zu blockieren: Ein fehlendes Bild ist kein Grund, eine
- * Preiserfassung abzuweisen.
+ * Fehler, unerlaubter Host, was auch immer — liefert `null` und lässt
+ * `bild_schluessel` leer, statt die Erfassung zu blockieren: Ein fehlendes
+ * Bild ist kein Grund, eine Preiserfassung abzuweisen.
  */
 export async function ladeUndSpeichereBild(
   db: DbOderTransaktion,
@@ -50,8 +73,14 @@ export async function ladeUndSpeichereBild(
   bildUrl: string,
   abrufen: typeof fetch,
 ): Promise<string | null> {
+  if (!istErlaubteBildUrl(bildUrl)) return null;
+
   try {
-    const antwort = await abrufen(bildUrl);
+    // `redirect: "manual"`, damit eine geprüfte Open-Food-Facts-URL nicht
+    // serverseitig auf eine interne Adresse umleiten kann, ohne dass die
+    // Host-Prüfung ein zweites Mal greift. Eine 3xx-Antwort liefert dann
+    // einen opaken Redirect-Response, dessen `.ok` bereits `false` ist.
+    const antwort = await abrufen(bildUrl, { redirect: "manual" });
     if (!antwort.ok) return null;
 
     const bytes = Buffer.from(await antwort.arrayBuffer());

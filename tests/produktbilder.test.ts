@@ -133,4 +133,50 @@ describe("ladeUndSpeichereBild", () => {
 
     expect(schluessel).toBeNull();
   });
+
+  it("weist eine bildUrl ohne https ab, ohne einen Abruf zu starten", async () => {
+    const produkt = await legeProduktAn(umgebung.db, {
+      name: "Käse",
+      marke: null,
+      menge: 200,
+      einheit: "G",
+    });
+    const abrufen = fakeBildAbruf(new Uint8Array([1, 2, 3]));
+
+    const schluessel = await ladeUndSpeichereBild(
+      umgebung.db,
+      produkt.id,
+      "9002222222222",
+      "http://images.openfoodfacts.org/kaese.jpg",
+      abrufen,
+    );
+
+    expect(schluessel).toBeNull();
+    expect(abrufen).toHaveBeenCalledTimes(0);
+    const aktualisiert = await holeProdukt(umgebung.db, produkt.id);
+    expect(aktualisiert?.bildSchluessel).toBeNull();
+  });
+
+  it("weist eine bildUrl mit nicht erlaubtem Host ab, ohne einen Abruf zu starten", async () => {
+    const produkt = await legeProduktAn(umgebung.db, {
+      name: "Wurst",
+      marke: null,
+      menge: 300,
+      einheit: "G",
+    });
+    const abrufen = fakeBildAbruf(new Uint8Array([1, 2, 3]));
+
+    const schluessel = await ladeUndSpeichereBild(
+      umgebung.db,
+      produkt.id,
+      "9003333333333",
+      "https://169.254.169.254/latest/meta-data/bild.jpg",
+      abrufen,
+    );
+
+    expect(schluessel).toBeNull();
+    expect(abrufen).toHaveBeenCalledTimes(0);
+    const aktualisiert = await holeProdukt(umgebung.db, produkt.id);
+    expect(aktualisiert?.bildSchluessel).toBeNull();
+  });
 });
