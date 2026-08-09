@@ -53,8 +53,17 @@ export async function starteTestDatenbank(): Promise<TestDatenbank> {
   const url = urlFuer(name);
   const pool = new Pool({ connectionString: url });
   try {
+    /*
+     * Hier wird **keine** Erweiterung mehr angelegt. `pg_trgm` kam früher von
+     * dieser Stelle — mit dem Ergebnis, dass jede Testdatenbank sie hatte und
+     * keine echte. Die Produktsuche war in allen Tests grün und brach im
+     * Browser mit `function similarity(text, unknown) does not exist` ab.
+     *
+     * Seit `drizzle/0005_wandering_trgm.sql` kommt sie aus der Migration, also
+     * aus derselben Quelle wie in der Produktion. Wer sie dort entfernt, sieht
+     * es an roten Tests statt an einer kaputten Seite.
+     */
     const db = drizzle(pool);
-    await db.execute(sql`create extension if not exists pg_trgm`);
 
     return {
       db,
@@ -72,7 +81,7 @@ export async function starteTestDatenbank(): Promise<TestDatenbank> {
     await datenbankLoeschen(name).catch(() => {});
     throw new Error(
       `Testdatenbank "${name}" konnte nicht eingerichtet werden und wurde ` +
-        `wieder entfernt. Läuft der Test-Postgres mit der Erweiterung pg_trgm? ` +
+        `wieder entfernt. Läuft der Test-Postgres? ` +
         `Ursache: ${(fehler as Error).message}`,
       { cause: fehler },
     );

@@ -1,0 +1,11 @@
+-- Trigramm-Ähnlichkeit für die Produktsuche (`sucheProdukte` in src/lib/katalog.ts).
+--
+-- Steht hier und nicht mehr nur in `tests/helfer/db.ts`: Dort angelegt, war die
+-- Erweiterung in jeder Testdatenbank vorhanden und in keiner echten. Die Suche
+-- war deshalb grün in allen Tests und brach im Browser mit
+-- `function similarity(text, unknown) does not exist` ab.
+--
+-- `pg_trgm` ist seit Postgres 13 eine „trusted extension": Wer die Datenbank
+-- besitzt, darf sie anlegen, ohne Superuser zu sein. Die Migration braucht
+-- also keine erhöhten Rechte.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
