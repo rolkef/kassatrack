@@ -2,15 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/db";
-import {
-  bezugsName,
-  formatiereBetrag,
-  formatiereGrundpreis,
-  formatierePackung,
-} from "@/lib/einheiten";
+import { formatierePackung } from "@/lib/einheiten";
 import { holeProdukt, type Produkt } from "@/lib/katalog";
-import { bestesAngebot, holePreisMatrix, type PreisZeile } from "@/lib/preise";
+import { bestesAngebot, holePreisMatrix } from "@/lib/preise";
 import { requireUser } from "@/lib/sitzung";
+import { HeuteSieger } from "./heute-sieger";
 import { PreisTabelle } from "./preis-tabelle";
 
 /**
@@ -121,117 +117,6 @@ export default async function ProduktSeite({ params }: { params: Promise<{ id: s
 }
 
 /**
- * Die ruhige Ebene: ein Preis, groß genug, um ihn im Vorbeigehen zu lesen.
- *
- * Die Ersparnis steht gegen die **teuerste** Kette und nicht gegen den
- * Durchschnitt: Wer vor dem Regal steht, entscheidet zwischen zwei Läden, nicht
- * gegen ein Mittel. Sie erscheint nur, wenn es überhaupt eine zweite Kette mit
- * Daten gibt — sonst wäre „günstiger als" eine Aussage über eine leere Menge.
- */
-function HeuteSieger({
-  sieger,
-  referenzSieger,
-  zeilen,
-  einheit,
-}: {
-  sieger: PreisZeile;
-  referenzSieger: PreisZeile | null;
-  zeilen: PreisZeile[];
-  einheit: Produkt["einheit"];
-}) {
-  const mitPreis = zeilen.filter((zeile) => zeile.bestpreis !== null);
-  const teuerste = mitPreis.reduce((a, b) => (b.bestpreis! > a.bestpreis! ? b : a));
-  const ersparnis = teuerste.bestpreis! - sieger.bestpreis!;
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5 rounded-block bg-flaeche px-5 py-5">
-        <p className="text-[0.75rem] font-semibold tracking-[0.1em] text-gedaempft uppercase">
-          Heute am günstigsten
-        </p>
-        <p className="text-[1.0625rem] font-medium">{sieger.kette.name}</p>
-        {/*
-          Zahl und Einheit getrennt gesetzt, nicht als ein Stück aus
-          `formatiereGrundpreis`: In Martian Mono bei 2,375 rem wiegt „€/kg"
-          genauso schwer wie der Betrag, und die Zeile hat dann zwei
-          gleich laute Hälften statt einer Zahl mit einer Angabe dahinter.
-          Nachgemessen im Browser — als ein Stück gesetzt sah es aus wie eine
-          Überschrift, nicht wie ein Preis.
-        */}
-        <p className="flex items-baseline gap-1.5 text-marke">
-          <span className="zahlen text-[clamp(1.75rem,8vw,2.375rem)] leading-none tracking-[-0.055em]">
-            {formatiereBetrag(sieger.bestpreis!)}
-          </span>
-          <span className="text-[1.0625rem] leading-none font-medium">
-            €/{bezugsName(einheit)}
-          </span>
-        </p>
-
-        {sieger.aktion ? (
-          <p className="text-[0.8125rem] leading-relaxed text-gedaempft">
-            Aktionspreis, gültig bis {langesDatum(sieger.aktion.gueltigBis)}. Danach zählt wieder
-            der Normalpreis.
-          </p>
-        ) : null}
-
-        {ersparnis > 0 ? (
-          <p className="text-[0.8125rem] leading-relaxed text-gedaempft">
-            {formatiereGrundpreis(ersparnis, einheit)} günstiger als bei {teuerste.kette.name} —
-            der teuersten Kette mit erfasstem Preis.
-          </p>
-        ) : (
-          <p className="text-[0.8125rem] leading-relaxed text-gedaempft">
-            Bisher ist nur {sieger.kette.name} erfasst. Ein Vergleich entsteht, sobald ein Preis
-            aus einer zweiten Kette dazukommt.
-          </p>
-        )}
-      </div>
-
-      {/*
-        Eine Zeile, keine zweite Kachel. Beide Sieger als gleich große Blöcke
-        nebeneinander wären zwei Antworten auf eine Frage — und die Frage im
-        Geschäft lautet „heute", nicht „auf Dauer".
-      */}
-      {referenzSieger === null ? null : (
-        <p className="text-[0.9375rem] leading-relaxed text-gedaempft">
-          {referenzSieger.kette.kuerzel === sieger.kette.kuerzel ? (
-            <>
-              {referenzSieger.kette.name} ist auch sonst die günstigste Kette:{" "}
-              {/*
-                Bewusst **nicht** `zahlen`: Martian Mono ist sehr breit, und
-                mitten in einem Satz reißt sie die Zeile auseinander — im
-                Browser brach „9,16 €/kg" zwischen Betrag und Einheit um. Die
-                Tabellenschrift gehört dorthin, wo Ziffern untereinander
-                stehen, nicht in einen Fließtext.
-              */}
-              <span className="font-semibold text-vordergrund">
-                {formatiereGrundpreis(referenzSieger.referenzpreis!, einheit)}
-              </span>{" "}
-              als Referenzpreis.
-            </>
-          ) : (
-            <>
-              Auf Dauer am günstigsten ist {referenzSieger.kette.name} mit{" "}
-              {/*
-                Bewusst **nicht** `zahlen`: Martian Mono ist sehr breit, und
-                mitten in einem Satz reißt sie die Zeile auseinander — im
-                Browser brach „9,16 €/kg" zwischen Betrag und Einheit um. Die
-                Tabellenschrift gehört dorthin, wo Ziffern untereinander
-                stehen, nicht in einen Fließtext.
-              */}
-              <span className="font-semibold text-vordergrund">
-                {formatiereGrundpreis(referenzSieger.referenzpreis!, einheit)}
-              </span>{" "}
-              als Referenzpreis.
-            </>
-          )}
-        </p>
-      )}
-    </div>
-  );
-}
-
-/**
  * Der Zustand, der am Anfang für jedes Produkt gilt.
  *
  * Sand statt Rot, und mit dem nächsten Schritt daneben: Ein Produkt ohne Preis
@@ -252,17 +137,6 @@ function NochKeinPreis({ produkt }: { produkt: Produkt }) {
       </p>
     </div>
   );
-}
-
-/*
- * Von Hand statt über `Intl`: Das Ergebnis hinge sonst davon ab, welche
- * Gebietsdaten die Laufzeit mitbringt, und ein Datum, das im Bau anders
- * aussieht als in der Entwicklung, fällt erst im Betrieb auf.
- */
-function langesDatum(datum: Date): string {
-  const tag = String(datum.getDate()).padStart(2, "0");
-  const monat = String(datum.getMonth() + 1).padStart(2, "0");
-  return `${tag}.${monat}.${datum.getFullYear()}`;
 }
 
 function Zurueck() {
