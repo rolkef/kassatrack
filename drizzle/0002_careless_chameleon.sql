@@ -1,0 +1,1 @@
+ALTER TABLE "allowed_email" ADD COLUMN "ist_betreiber" boolean DEFAULT false NOT NULL;
