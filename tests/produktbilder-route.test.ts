@@ -1,10 +1,24 @@
-import { describe, expect, it, afterAll } from "bun:test";
+import { describe, expect, it, afterAll, mock } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const verzeichnis = await mkdtemp(join(tmpdir(), "produktbilder-route-"));
-process.env.PRODUKTBILDER_VERZEICHNIS = verzeichnis;
+
+/*
+ * `env` ist eine beim ersten Import eingefrorene Konstante (`src/lib/env.ts`).
+ * Ein bloßes `process.env.PRODUKTBILDER_VERZEICHNIS = …` wirkt deshalb nur,
+ * wenn diese Datei im Lauf als **erste** `@/lib/env` lädt — eine Annahme über
+ * die Reihenfolge der Testdateien, die bricht, sobald eine andere Testdatei
+ * vorher `@/lib/produktbilder` (und damit transitiv `@/lib/env`) importiert.
+ * Die Attrappe macht die Isolation unabhängig von dieser Reihenfolge; sie
+ * spreizt das echte `env`, damit andere Felder unangetastet bleiben.
+ */
+const echtesEnv = await import("@/lib/env");
+await mock.module("@/lib/env", () => ({
+  ...echtesEnv,
+  env: { ...echtesEnv.env, PRODUKTBILDER_VERZEICHNIS: verzeichnis },
+}));
 
 afterAll(async () => {
   await rm(verzeichnis, { recursive: true, force: true });
