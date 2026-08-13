@@ -605,6 +605,44 @@ describe("erfasse — Zettel-Bezug", () => {
     expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
   });
 
+  /*
+   * Der Test oben scheitert schon an der Preisprüfung, **vor** der
+   * Transaktion — er belegt nicht, dass ein Abbruch *innerhalb* der
+   * Transaktion den Zettel-Eintrag ebenso unabgehakt lässt. Dieser Test
+   * erzwingt den Abbruch stattdessen mit einer Datenbank-Bedingung, nach
+   * demselben Muster wie "nimmt bei einem gescheiterten Angebot auch die
+   * Beobachtung zurück" oben: `hakeItemAb` steht in der Transaktion nach dem
+   * Angebot, wird bei diesem Abbruch also nie erreicht — genau das prüft
+   * die Neuabfrage über `holeArtikel`.
+   */
+  it("lässt den Zettel-Eintrag unabgehakt, wenn die Transaktion an einer Datenbank-Bedingung scheitert", async () => {
+    const liste = await erzeugeListe(umgebung.db, "Test");
+    const artikel = await fuegeFreitextArtikelHinzu(umgebung.db, liste.id, "Butter");
+
+    await umgebung.db.execute(sql`
+      alter table offer add constraint offer_zettel_pruefsperre check (preis <> 9.9600)
+    `);
+
+    try {
+      const ergebnis = await erfasse(
+        undefined,
+        formular({
+          ...gueltig,
+          preisart: "PROMO",
+          gueltigBis: "2099-12-31",
+          zettelItemId: artikel.id,
+        }),
+      );
+
+      expect(ergebnis.art).toBe("fehler");
+      expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
+      const [unveraendert] = await holeArtikel(umgebung.db, liste.id);
+      expect(unveraendert?.abgehaktAm).toBeNull();
+    } finally {
+      await umgebung.db.execute(sql`alter table offer drop constraint offer_zettel_pruefsperre`);
+    }
+  });
+
   it("funktioniert unverändert ohne zettelItemId", async () => {
     const ergebnis = await erfasse(undefined, formular(gueltig));
     expect(ergebnis.art).toBe("erfolg");
