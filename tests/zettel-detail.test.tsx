@@ -196,19 +196,26 @@ describe("ZettelDetail — hinzufügen", () => {
    * Tastendruck. Ein Abschnitt, dessen Name sich unter der Hand ändert, ist in
    * einer vorgelesenen Übersicht nicht wiederzufinden.
    */
-  it("behält den Namen des Abschnitts, während getippt wird", async () => {
-    suchTreffer = [];
+  it("benennt den Abschnitt über die Beschriftung, nicht über das Feld", () => {
     zeichne([]);
-    expect(screen.getByRole("region", { name: FELD })).toBeDefined();
+    const feld = screen.getByRole("searchbox", { name: FELD });
+    const abschnitt = feld.closest("section")!;
+    const beschriftet = abschnitt.getAttribute("aria-labelledby")!;
 
-    await userEvent.type(screen.getByRole("searchbox", { name: FELD }), "Butter");
-    // Erst die Suche auslaufen lassen, sonst liefe ihr Zeitgeber in den
-    // nächsten Test hinein.
-    await waitFor(() => {
-      expect(document.body.textContent).toContain("Nichts im Katalog");
-    });
-
-    expect(screen.getByRole("region", { name: FELD })).toBeDefined();
+    /*
+     * Geprüft wird die Verdrahtung, **nicht** der berechnete Name — und das
+     * mit Absicht: `dom-accessibility-api`, worauf Testing Library aufbaut,
+     * weicht an genau dieser Stelle vom accname-Standard ab (Schritt 2E greift
+     * dort nur bei `context.recursion`, ein über `aria-labelledby`
+     * verwiesener Knoten bekommt aber `recursion: false`; die Bibliothek
+     * verweist im Kommentar auf w3c/accname#64). Kaputte und behobene Fassung
+     * liefern hier deshalb **denselben** Namen — nur Chromiums echter
+     * Barrierefreiheitsbaum unterscheidet sie. Über den Namen zu prüfen wäre
+     * also ein Test, der nie fehlschlägt.
+     */
+    expect(beschriftet).not.toBe(feld.id);
+    expect(document.getElementById(beschriftet)?.tagName).toBe("LABEL");
+    expect(document.getElementById(beschriftet)?.textContent).toBe(FELD);
   });
 
   it("sucht nicht, solange das Feld leer ist", async () => {

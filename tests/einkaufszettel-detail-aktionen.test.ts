@@ -203,6 +203,35 @@ describe("stueckzahlAktion", () => {
   });
 
   /*
+   * Ohne `order by` in `ladeArtikel` liefert Postgres die Heap-Reihenfolge,
+   * und ein `update` schreibt die geänderte Zeile ans Ende: Aus
+   * `Butter, Salz, Milch` wurde nach einer Stückzahländerung an Butter
+   * `Salz, Milch, Butter`. Der Artikel, den man gerade angefasst hat, sprang
+   * also unter den Augen nach unten — bei der häufigsten Geste dieses
+   * Bildschirms.
+   *
+   * Geprüft wird **Stabilität**, nicht die Einfügereihenfolge: Die wäre die
+   * eigentlich richtige Ordnung, braucht aber eine eigene Zeitspalte und
+   * damit eine Migration. Bis dahin genügt, dass sich die Reihenfolge durch
+   * ein Ändern nicht verschiebt.
+   */
+  it("lässt die Reihenfolge der Artikel unberührt", async () => {
+    const zettel = await liste();
+    for (const name of ["Butter", "Salz", "Milch"]) {
+      await artikelHinzufuegenAktion({ listId: zettel.id, freitext: name });
+    }
+    const vorher = (await holeArtikel(umgebung.db, zettel.id)).map((a) => a.freitext);
+    const butter = (await holeArtikel(umgebung.db, zettel.id)).find(
+      (a) => a.freitext === "Butter",
+    );
+
+    await stueckzahlAktion(butter!.id, 5, zettel.id);
+
+    const nachher = (await holeArtikel(umgebung.db, zettel.id)).map((a) => a.freitext);
+    expect(nachher).toEqual(vorher);
+  });
+
+  /*
    * Null wäre nicht „entfernt", sondern eine Zeile, die nichts verlangt — und
    * die Datenbankbedingung `stueckzahl_positiv` wiese sie ohnehin ab, dort
    * aber als technischer Fehler. Entfernen ist eine eigene Handlung.

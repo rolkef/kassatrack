@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { SQL } from "drizzle-orm";
-import { desc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { shoppingList, shoppingListItem } from "@/db/schema/einkaufszettel";
 import { holeProdukt, type Produkt } from "@/lib/katalog";
 import type { DbOderTransaktion } from "@/lib/zugriff";
@@ -66,7 +66,19 @@ async function ladeArtikel(db: DbOderTransaktion, where: SQL): Promise<ZettelArt
       abgehaktAm: shoppingListItem.abgehaktAm,
     })
     .from(shoppingListItem)
-    .where(where);
+    /*
+     * Ohne `order by` liefert Postgres die Heap-Reihenfolge, und ein `update`
+     * schreibt die Zeile neu ans Ende — auf dem Zettel spränge der Artikel,
+     * dessen Stückzahl man gerade geändert hat, nach unten. Das trifft die
+     * häufigste Geste des Listendetails.
+     *
+     * Nach `id` ist willkürlich, aber **stabil**: Die eigentlich richtige
+     * Ordnung wäre die Einfügereihenfolge, und die braucht eine eigene
+     * Zeitspalte, also eine Migration. Bis dahin ist eine feste Reihenfolge
+     * das, worauf es hier ankommt.
+     */
+    .where(where)
+    .orderBy(asc(shoppingListItem.id));
 
   const ergebnis: ZettelArtikel[] = [];
   for (const zeile of zeilen) {
