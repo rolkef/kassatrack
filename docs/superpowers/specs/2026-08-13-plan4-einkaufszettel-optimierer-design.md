@@ -92,12 +92,16 @@ wie viele Packungen gekauft werden sollen. Der Optimierer rechnet je Artikel
 erst auf den Packungspreis zurückgerechnet werden, bevor multipliziert und
 summiert wird.
 
-`product_id` referenziert `product` bewusst **ohne** `on delete cascade`:
-Verschwände ein Produkt aus einem anderen Grund, bliebe der Zettel-Eintrag
-als Freitext-Rest bestehen (`product_id` auf `null`, ursprünglicher Name in
-`freitext` nachgetragen), statt lautlos vom Zettel zu verschwinden.
-Produktlöschung existiert heute nicht — das ist reine Vorsorge, kein
-aktiver Mechanismus dieses Plans.
+`product_id` referenziert `product` bewusst **ohne** `on delete cascade`
+(`onDelete: "set null"` stattdessen), damit eine künftige Produktlöschung den
+Zettel-Eintrag nicht stillschweigend mitreißt — **aber** `set null` allein
+genügt dafür nicht: Die Bedingung `shopping_list_item_genau_eine_quelle`
+prüft die Zeile, die `set null` hinterlässt, findet dort `product_id` und
+`freitext` beide `null` und lässt darum das `delete` selbst fehlschlagen
+(faktisch wie `restrict`, nur mit der verwirrenderen Fehlermeldung). Eine
+künftige Löschfunktion muss `freitext` in derselben Anweisung oder
+Transaktion nachtragen, sonst bricht sie ab. Produktlöschung existiert heute
+nicht — das ist reine Vorsorge, kein aktiver Mechanismus dieses Plans.
 
 ## Der Optimierer
 
