@@ -105,6 +105,7 @@ describe("berechneOptimierung", () => {
     const optimierung = await berechneOptimierung(umgebung.db, liste.id);
 
     expect(optimierung.aufteilungSumme).toBeCloseTo(6.0, 2);
+    expect(optimierung.guenstigsterEinzelmarkt?.summe).toBeCloseTo(6.0, 2);
   });
 
   it("lässt Freitext-Artikel aus beiden Rechnungen heraus", async () => {
