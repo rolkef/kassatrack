@@ -144,3 +144,90 @@ Neuaufnahme dieselbe Sitzung braucht wie oben.
 
 Die Browserkonsole war über den ganzen Durchgang leer: keine
 CSP-Verstöße, keine Hydrierungswarnungen, keine Fehler.
+
+## Einkaufszettel — Übersicht (Plan 4, Task 6)
+
+Gegen den Produktionsbau (`bun run build && bun run start`) bei 390×844 und
+1280×900, angemeldet über eine von Hand angelegte Sitzung. Die Browserkonsole
+war bei allen vier Aufnahmen und über alle Interaktionen hinweg leer: keine
+CSP-Verstöße, keine Hydrierungswarnungen, keine Fehler.
+
+| Datei | Was zu sehen ist |
+|---|---|
+| `zettel-handy-leer.png` | Noch kein Zettel angelegt. Der leere Zustand sagt in Sand, was hier künftig steht und wie es dorthin kommt — kein „nichts da". |
+| `zettel-handy-liste.png` | Zwei Zettel, das Jüngste zuoberst. Jede Zeile ist über ihre ganze Breite antippbar; „Löschen" steht als zurückhaltende Nebenschaltfläche daneben, nicht in Rot. |
+| `zettel-handy-rueckfrage.png` | Die Rückfrage vor dem Löschen, an Ort und Stelle statt in einem Dialog. Erst dieser zweite Schritt ist rot, und der Satz darüber sagt, dass alles auf dem Zettel mitgeht und nichts zurückzuholen ist. |
+| `zettel-handy-abgewiesen.png` | Anlegen ohne Namen: Meldung unter dem Feld, roter Feldrand, Eingabe bleibt stehen. |
+| `zettel-desktop.png` | 1280×900. Feld und Schaltfläche stehen nebeneinander und fluchten an der Oberkante; im Bild trägt „Löschen" den Fokusring, weil die Rückfrage gerade mit Escape abgebrochen wurde und der Fokus an ihren Auslöser zurückgesprungen ist. |
+
+## Einkaufszettel — Listendetail (Plan 4, Task 7)
+
+Gegen den Produktionsbau (`bun run build && bun run start`) bei 390×844 und
+1280×900, jeweils bei doppelter Pixeldichte. Die Browserkonsole war über den
+ganzen Durchgang leer: keine CSP-Verstöße, keine Hydrierungswarnungen, keine
+Fehler.
+
+**Diese Aufnahmen entstanden nicht an einem echten Zettel, sondern über eine
+Wegwerf-Route mit erfundenen Daten** (`/pruef-zettel`, nach der Prüfung wieder
+gelöscht). Sie zeichnete dieselbe `ZettelDetail`-Komponente unter demselben
+Produktionsbündel und derselben CSP, nur ohne Sitzung und mit Attrappen
+anstelle der vier Server-Aktionen. Grund: In dieser Umgebung ließ sich keine
+echte Anmeldung herstellen — die Google-Zugangsdaten in `.env` sind
+Platzhalter, ein Passwort-Pfad ist in `src/lib/auth.ts` bewusst abgeschaltet,
+und eine von Hand angelegte Sitzung wie in Task 6 war der Sitzung dieses
+Durchgangs von der Rechteverwaltung verwehrt. Belegt ist damit alles, was am
+Bündel und an der Oberfläche hängt (Gestalt, CSP, Tastaturbedienung,
+zugängliche Namen, das Zusammenspiel der Aktionen über einen echten
+Server-Aktionsaufruf); **nicht** belegt ist das Zusammenspiel mit echten
+Zetteldaten aus der Datenbank. Der Rückweg „Alle Zettel" zeigt in den
+Aufnahmen auf die echte Übersicht, der Titel „Wocheneinkauf" ist erfunden.
+
+| Datei | Was zu sehen ist |
+|---|---|
+| `zettel-detail-handy-liste.png` | Zwei Artikel bei 390×844: ein Katalogartikel mit Marke und Gebindegröße, darunter ein Freitext mit „kein Preisvergleich". Zähler und „Entfernen" stehen nebeneinander in einer Zeile, ohne umzubrechen. |
+| `zettel-detail-handy-treffer.png` | Katalogtreffer zu „Butter" beim Tippen. Die Trefferliste steht zwischen Feld und Zettel; „Als Freitext hinzufügen" bleibt als Ausweg darunter stehen, in der zurückhaltenden Variante, solange es Treffer gibt. |
+| `zettel-detail-handy-ohne-treffer.png` | Nichts im Katalog zu „Topfenstrudel". Sand statt Rot, und die Meldung zeigt auf den Freitext, statt in einer Sackgasse zu enden — erst hier wird „Als Freitext hinzufügen" zur betonten Wahl. |
+| `zettel-detail-handy-fokus.png` | Sichtbarer Fokusring auf „Entfernen" der ersten Zeile. Ihr zugänglicher Name lautet „Entfernen, Vollmilch 3,5 %"; sichtbar steht nur „Entfernen", weil der Warenname schon darüber steht. |
+| `zettel-detail-handy-leer.png` | Zettel ohne einen einzigen Artikel. Der leere Zustand sagt, was hier hingehört und wozu es gut ist; die Zählung daneben steht auf 0. |
+| `zettel-detail-desktop.png` | 1280×900. Name links, Zähler und „Entfernen" rechts in einer Zeile; im Bild trägt „Entfernen" der ersten Zeile den Fokusring. |
+
+## Einkaufszettel — Optimierer an echten Daten und Navigation (Plan 4, Task 9)
+
+Gegen den Produktionsbau (`bun run build && bun run start`) bei 390×844,
+390×1500 und 1280×900. Die Browserkonsole war über den ganzen Durchgang leer:
+keine CSP-Verstöße, keine Hydrierungswarnungen, keine Fehler.
+
+**Der Unterschied zu Task 7 und 8: Hier stehen echte Daten dahinter.** Die
+Aufnahmen entstanden zwar wieder über eine Wegwerf-Route
+(`/verifikation-zettel`, nach der Prüfung gelöscht) — eine echte
+Better-Auth-Sitzung ist in dieser Umgebung nicht herstellbar, weil `erfasse`
+und alle Zettel-Aktionen mit `requireUser()` beginnen, Google-OAuth für
+`localhost` nicht eingerichtet ist, der Passwort-Pfad in `src/lib/auth.ts`
+bewusst aus ist und der Passkey-Weg sich nicht selbst starten kann
+(`/passkey/generate-register-options` liegt hinter `freshSessionMiddleware`,
+verlangt also eine bereits bestehende Sitzung). Die Route unterschied sich von
+`src/app/einkaufszettel/[id]/page.tsx` aber **nur** um das fehlende
+`requireUser()`: Dahinter lagen eine echte Postgres-Datenbank, das echte
+`berechneOptimierung`, die echte `OptimiererAnzeige`, die echte `ZettelDetail`
+und die echte `Navigationsleiste`.
+
+Damit ist erstmals belegt, was der ganze Plan bis dahin nur über Einzeltests
+und Attrappen gezeigt hatte: die Kette von echtem Postgres über den Optimierer
+bis in die Anzeige. Nicht belegt bleibt der Weg durch `erfasse` selbst — das
+Abhaken samt Preis wurde auf der Datenebene über dieselben Bibliotheksaufrufe
+ausgelöst, die `erfasse` in seiner Transaktion macht
+(`sichereKettenProdukt`, `schreibeBeobachtung`, `hakeItemAb`), nicht über das
+Formular.
+
+Die Saat: fünf Ketten, drei Produkte, ein Freitext-Artikel. Billa und Spar
+führen alles, Hofer fehlt der Kaffee, Lidl führt nur Milch, Penny anfangs
+nichts. Vollmilch steht zweimal auf dem Zettel.
+
+| Datei | Was zu sehen ist |
+|---|---|
+| `zettel-optimierer-echt-handy.png` | 390×844, Ausgangsstand. „Aufgeteilt sparst du 0,90 €" — 10,86 € auf zwei Ketten statt 11,76 € bei Billa, „dem günstigsten Geschäft, das alles führt". Unten die Leiste mit dem neuen Ziel „Zettel" als aktivem Bereich. |
+| `zettel-optimierer-echt-ketten.png` | 390×1500, „Ketten im Detail" aufgeklappt, nach dem Abhaken. Oben „Alles in einem Geschäft": Billa 11,76 €, Spar 12,16 €, und Hofer, Lidl und Penny mit „nicht alles hier erfasst" statt einer Summe — obwohl Hofer die beiden billigsten Einzelpreise hat. Darunter „Aufgeteilt — 9,86 €" mit Hofer 2,87 € (Weizenmehl 0,89 €, Vollmilch „1 l · 2 ×" zu 1,98 €) und Penny 6,99 €. Der Freitext „Zahnpasta" steht auf dem Zettel und in keiner der beiden Rechnungen. |
+| `zettel-optimierer-echt-abgehakt.png` | 390×1500 nach dem Abhaken der Kaffeebohnen mit einem Preis bei Penny: Die Ersparnis ist von 0,90 € auf 1,90 € gestiegen, die Aufteilung von 10,86 € auf 9,86 €, der beste Einzelmarkt steht unverändert bei Billa. Die abgehakte Zeile ist durchgestrichen und trägt ein gefülltes Häkchen. |
+| `zettel-optimierer-echt-nur-freitext.png` | Ein Zettel aus lauter Freitext-Artikeln. Er zeigt „Noch keine Preise erfasst", und zwar dauerhaft — der Zweig hängt an einer leeren Aufteilung, und Freitext-Artikel gehen bauartbedingt in keine Rechnung ein. Siehe `docs/offene-punkte.md`, Abschnitt „Aus Plan 4". |
+| `zettel-navigation-handy-ruhend.png` | Dieselbe Seite mit „Erfassen" als aktivem Bereich: „Zettel" steht daneben im Ruhezustand, mit umrissenem statt gefülltem Symbol, gedämpfter Farbe und ohne Balken an der Kante. Der Vergleich zu den Aufnahmen darüber zeigt, dass sich der aktive Bereich nicht allein an der Farbe erkennen lässt. |
+| `zettel-navigation-desktop.png` | 1280×900. Ab `sm` klebt dieselbe Leiste oben: Wortmarke links, die drei Ziele rechts, „Zettel" aktiv mit dem Balken an der Unterkante — dort, wo die Leiste an den Inhalt grenzt. |

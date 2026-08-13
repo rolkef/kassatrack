@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { erzeugeListe, fuegeFreitextArtikelHinzu, holeArtikel } from "@/lib/einkaufszettel";
 import { legeKettenAn } from "@/lib/katalog";
 import { bestesAngebot, holePreisMatrix } from "@/lib/preise";
 import type { ZugriffsDb } from "@/lib/zugriff";
@@ -569,5 +570,81 @@ describe("erfasste Aktion", () => {
 
     expect(ergebnis.art).toBe("erfolg");
     expect(await anzahl("offer")).toBe(1);
+  });
+});
+
+/*
+ * Plan 4: `erfasse` hakt auf Wunsch einen Zettel-Eintrag in derselben
+ * Transaktion ab, die auch die Preisbeobachtung schreibt — Erfolg und
+ * Abhaken stehen und fallen gemeinsam.
+ */
+describe("erfasse — Zettel-Bezug", () => {
+  it("hakt den Zettel-Eintrag ab, wenn zettelItemId übergeben wird", async () => {
+    const liste = await erzeugeListe(umgebung.db, "Test");
+    const artikel = await fuegeFreitextArtikelHinzu(umgebung.db, liste.id, "Butter");
+
+    const ergebnis = await erfasse(undefined, formular({ ...gueltig, zettelItemId: artikel.id }));
+
+    expect(ergebnis.art).toBe("erfolg");
+    const [aktualisiert] = await holeArtikel(umgebung.db, liste.id);
+    expect(aktualisiert?.abgehaktAm).not.toBeNull();
+  });
+
+  it("lässt den Zettel-Eintrag unabgehakt, wenn die Erfassung abgewiesen wird", async () => {
+    const liste = await erzeugeListe(umgebung.db, "Test");
+    const artikel = await fuegeFreitextArtikelHinzu(umgebung.db, liste.id, "Butter");
+
+    const ergebnis = await erfasse(
+      undefined,
+      formular({ ...gueltig, zettelItemId: artikel.id, preis: "-1" }),
+    );
+
+    expect(ergebnis.art).toBe("fehler");
+    const [unveraendert] = await holeArtikel(umgebung.db, liste.id);
+    expect(unveraendert?.abgehaktAm).toBeNull();
+    expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
+  });
+
+  /*
+   * Der Test oben scheitert schon an der Preisprüfung, **vor** der
+   * Transaktion — er belegt nicht, dass ein Abbruch *innerhalb* der
+   * Transaktion den Zettel-Eintrag ebenso unabgehakt lässt. Dieser Test
+   * erzwingt den Abbruch stattdessen mit einer Datenbank-Bedingung, nach
+   * demselben Muster wie "nimmt bei einem gescheiterten Angebot auch die
+   * Beobachtung zurück" oben: `hakeItemAb` steht in der Transaktion nach dem
+   * Angebot, wird bei diesem Abbruch also nie erreicht — genau das prüft
+   * die Neuabfrage über `holeArtikel`.
+   */
+  it("lässt den Zettel-Eintrag unabgehakt, wenn die Transaktion an einer Datenbank-Bedingung scheitert", async () => {
+    const liste = await erzeugeListe(umgebung.db, "Test");
+    const artikel = await fuegeFreitextArtikelHinzu(umgebung.db, liste.id, "Butter");
+
+    await umgebung.db.execute(sql`
+      alter table offer add constraint offer_zettel_pruefsperre check (preis <> 9.9600)
+    `);
+
+    try {
+      const ergebnis = await erfasse(
+        undefined,
+        formular({
+          ...gueltig,
+          preisart: "PROMO",
+          gueltigBis: "2099-12-31",
+          zettelItemId: artikel.id,
+        }),
+      );
+
+      expect(ergebnis.art).toBe("fehler");
+      expect(await nichtsAngelegt()).toEqual(UNBERUEHRT);
+      const [unveraendert] = await holeArtikel(umgebung.db, liste.id);
+      expect(unveraendert?.abgehaktAm).toBeNull();
+    } finally {
+      await umgebung.db.execute(sql`alter table offer drop constraint offer_zettel_pruefsperre`);
+    }
+  });
+
+  it("funktioniert unverändert ohne zettelItemId", async () => {
+    const ergebnis = await erfasse(undefined, formular(gueltig));
+    expect(ergebnis.art).toBe("erfolg");
   });
 });

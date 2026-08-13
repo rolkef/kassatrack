@@ -43,6 +43,13 @@
       "when": 1786646400000,
       "tag": "0005_wandering_trgm",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786646460000,
+      "tag": "0006_famous_shinobi_shaw",
+      "breakpoints": true
     }
   ]
 }

@@ -13,6 +13,7 @@ type Ziel = {
 const ZIELE: Ziel[] = [
   { href: "/erfassen", name: "Erfassen", Symbol: SymbolErfassen },
   { href: "/produkte", name: "Produkte", Symbol: SymbolProdukte },
+  { href: "/einkaufszettel", name: "Zettel", Symbol: SymbolZettel },
 ];
 
 const ZUGRIFF: Ziel = { href: "/verwaltung/zugriff", name: "Zugriff", Symbol: SymbolZugriff };
@@ -69,7 +70,7 @@ export function Navigationsleiste({
     <>
       {/*
         Am Handy ist die Wortmarke der einzige Weg zurück zur Startseite: Die
-        Leiste unten führt in die drei Arbeitsbereiche, und als installierte PWA
+        Leiste unten führt nur in die Arbeitsbereiche, und als installierte PWA
         gibt es keine Zurück-Schaltfläche des Browsers. Sie scrollt bewusst mit
         und klebt nicht — die feste Leiste unten ist schon Platz genug.
       */}
@@ -149,7 +150,7 @@ function Wortmarke({ aktuell }: { aktuell: boolean }) {
 }
 
 /**
- * Die drei Symbole, von Hand gezeichnet statt aus einer Bibliothek.
+ * Die Symbole, von Hand gezeichnet statt aus einer Bibliothek.
  *
  * Sie teilen Maß und Strich mit dem Pfeil der Trefferliste (16er-Feld, 1,75
  * Strichstärke, runde Enden), damit die Leiste nicht wie ein zugekauftes Teil
@@ -203,6 +204,35 @@ function SymbolProdukte({ aktiv }: { aktiv: boolean }) {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+    </Rahmen>
+  );
+}
+
+function SymbolZettel({ aktiv }: { aktiv: boolean }) {
+  return (
+    <Rahmen>
+      <rect
+        x="3.25"
+        y="2"
+        width="9.5"
+        height="12"
+        rx="1.75"
+        fill={aktiv ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      {/*
+        Drei Zeilen, die letzte kürzer: So liest sich das Blatt als Liste und
+        nicht als leeres Etikett. Sie sind schmaler gestrichen als die Binnenform
+        der anderen Symbole, weil hier drei Striche in dieselbe Fläche müssen.
+      */}
+      <path
+        d="M6 5.5h4M6 8h4M6 10.5h2"
+        fill="none"
+        className={aktiv ? "stroke-hintergrund" : "stroke-current"}
+        strokeWidth="1.5"
         strokeLinecap="round"
       />
     </Rahmen>

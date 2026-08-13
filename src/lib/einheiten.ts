@@ -154,6 +154,19 @@ export function grundpreis(gesamtpreis: number, menge: Menge): number | null {
   return (gesamtpreis / menge.wert) * BEZUG[menge.einheit];
 }
 
+/**
+ * Der Packungspreis zu einem Grundpreis — die Umkehrung von `grundpreis()`.
+ *
+ * Gebraucht überall dort, wo aus vergleichbaren Preisen wieder ein Betrag
+ * werden soll, den man an der Kassa zahlt: Ein Grundpreis ist € je Kilo, Liter
+ * oder Stück, und Grundpreise mehrerer Artikel zu addieren ergibt keinen
+ * Eurobetrag, solange die Gebindegrößen auseinandergehen. Erst zurückgerechnet
+ * sind die Summanden dieselbe Größe.
+ */
+export function packungspreis(grundpreis: number, menge: Menge): number {
+  return (grundpreis * menge.wert) / BEZUG[menge.einheit];
+}
+
 export function formatiereGrundpreis(wert: number, einheit: Basiseinheit): string {
   return `${formatiereBetrag(wert)} €/${bezugsName(einheit)}`;
 }

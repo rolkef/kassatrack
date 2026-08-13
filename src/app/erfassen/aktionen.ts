@@ -10,6 +10,7 @@ import {
   zerlegeMenge,
   zerlegePreis,
 } from "@/lib/einheiten";
+import { hakeItemAb } from "@/lib/einkaufszettel";
 import { findeProdukt, holeKetten, legeProduktAn, sichereKettenProdukt } from "@/lib/katalog";
 import { schreibeAngebot, schreibeBeobachtung } from "@/lib/preise";
 import { requireUser } from "@/lib/sitzung";
@@ -51,6 +52,7 @@ export async function erfasse(_vorher: Ergebnis | undefined, formular: FormData)
   const marke = String(formular.get("marke") ?? "").trim();
   const preisart = String(formular.get("preisart") ?? "");
   const gueltigBis = String(formular.get("gueltigBis") ?? "").trim();
+  const zettelItemId = String(formular.get("zettelItemId") ?? "").trim() || null;
 
   if (name === "") {
     return fehler("Trag ein, um welches Produkt es geht — so, wie es am Etikett steht.");
@@ -239,6 +241,15 @@ export async function erfasse(_vorher: Ergebnis | undefined, formular: FormData)
           gueltigBis: aktionGueltigBis,
           quelle: "MANUAL",
         });
+      }
+
+      /*
+       * Innerhalb derselben Transaktion wie die Preisbeobachtung: Scheitert
+       * irgendein Schritt darüber, rollt alles zurück, und der Zettel-Eintrag
+       * bleibt so unabgehakt wie das Produkt ungespeichert.
+       */
+      if (zettelItemId) {
+        await hakeItemAb(tx, zettelItemId);
       }
 
       return produkt.id;

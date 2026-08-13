@@ -25,11 +25,12 @@ function ziel(name: string): HTMLAnchorElement | null {
 afterEach(cleanup);
 
 describe("Navigationsleiste", () => {
-  it("führt in die beiden Bereiche, die allen offenstehen", () => {
+  it("führt in die drei Bereiche, die allen offenstehen", () => {
     zeichne("/");
 
     expect(ziel("Erfassen")?.getAttribute("href")).toBe("/erfassen");
     expect(ziel("Produkte")?.getAttribute("href")).toBe("/produkte");
+    expect(ziel("Zettel")?.getAttribute("href")).toBe("/einkaufszettel");
   });
 
   /*
@@ -66,6 +67,22 @@ describe("Navigationsleiste", () => {
     zeichne("/produkte/abc-123");
 
     expect(ziel("Produkte")?.getAttribute("aria-current")).toBe("page");
+  });
+
+  /*
+   * Derselbe Präfix-Vergleich wie bei „Produkte", hier aber für den Bereich,
+   * in dem man sich am längsten aufhält: Auf `/einkaufszettel/<id>` steht man
+   * mitten im Einkauf, und genau dort darf die Leiste nicht ins Leere zeigen.
+   */
+  it("hält Zettel auch auf der Detailseite einer Liste aktiv", () => {
+    zeichne("/einkaufszettel");
+    expect(ziel("Zettel")?.getAttribute("aria-current")).toBe("page");
+
+    cleanup();
+
+    zeichne("/einkaufszettel/irgendeine-id");
+    expect(ziel("Zettel")?.getAttribute("aria-current")).toBe("page");
+    expect(ziel("Produkte")?.getAttribute("aria-current")).toBeNull();
   });
 
   /*
