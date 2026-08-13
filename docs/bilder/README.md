@@ -144,3 +144,18 @@ Neuaufnahme dieselbe Sitzung braucht wie oben.
 
 Die Browserkonsole war über den ganzen Durchgang leer: keine
 CSP-Verstöße, keine Hydrierungswarnungen, keine Fehler.
+
+## Einkaufszettel — Übersicht (Plan 4, Task 6)
+
+Gegen den Produktionsbau (`bun run build && bun run start`) bei 390×844 und
+1280×900, angemeldet über eine von Hand angelegte Sitzung. Die Browserkonsole
+war bei allen vier Aufnahmen und über alle Interaktionen hinweg leer: keine
+CSP-Verstöße, keine Hydrierungswarnungen, keine Fehler.
+
+| Datei | Was zu sehen ist |
+|---|---|
+| `zettel-handy-leer.png` | Noch kein Zettel angelegt. Der leere Zustand sagt in Sand, was hier künftig steht und wie es dorthin kommt — kein „nichts da". |
+| `zettel-handy-liste.png` | Zwei Zettel, das Jüngste zuoberst. Jede Zeile ist über ihre ganze Breite antippbar; „Löschen" steht als zurückhaltende Nebenschaltfläche daneben, nicht in Rot. |
+| `zettel-handy-rueckfrage.png` | Die Rückfrage vor dem Löschen, an Ort und Stelle statt in einem Dialog. Erst dieser zweite Schritt ist rot, und der Satz darüber sagt, dass alles auf dem Zettel mitgeht und nichts zurückzuholen ist. |
+| `zettel-handy-abgewiesen.png` | Anlegen ohne Namen: Meldung unter dem Feld, roter Feldrand, Eingabe bleibt stehen. |
+| `zettel-desktop.png` | 1280×900. Feld und Schaltfläche stehen nebeneinander und fluchten an der Oberkante; im Bild trägt „Löschen" den Fokusring, weil die Rückfrage gerade mit Escape abgebrochen wurde und der Fokus an ihren Auslöser zurückgesprungen ist. |
