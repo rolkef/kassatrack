@@ -276,3 +276,194 @@ echtem Android-Handy):
 
 - **Die Wortmarke ist am Handy der einzige Weg zurück zur Startseite.** Der Plan nennt drei Ziele (Erfassen, Produkte, Zugriff); die Startseite ist keines davon und wäre damit unerreichbar gewesen — als installierte PWA gibt es keine Zurück-Schaltfläche des Browsers. Die Leiste trägt deshalb unverändert die drei Ziele, und die Wortmarke führt zusätzlich heim.
 - **`holeLetzteErfassungen` filtert keine Preisarten.** Die Liste auf der Startseite ist ein Protokoll, keine Grundlage für eine Berechnung — der `PROMO`-Ausschluss gilt beim Referenzpreis, wo eine Aktion etwas verschieben könnte. Gekennzeichnet wird sie trotzdem, sonst läsen sich zwei Preise derselben Kette am selben Tag wie ein Widerspruch.
+
+## Aus Plan 4 (Einkaufszettel & Optimierer)
+
+Neun Tasks, jeder mit eigenem Review. Was hier steht, ist der Abgleich gegen
+das vollständige Protokoll dieser Reviews
+(`.superpowers/sdd/2026-08-13-plan4-einkaufszettel-optimierer/progress.md`) —
+nicht nur gegen das, was zuletzt noch präsent war.
+
+### Bekannte Falle: Migrations-Zeitstempel
+
+Der wichtigste Eintrag dieses Abschnitts, weil er weder eine Kleinigkeit noch
+auf Plan 4 beschränkt ist.
+
+Drizzles Migrator wendet eine Migration nur an, wenn ihr Zeitstempel *nach* dem
+der zuletzt in die Datenbank eingetragenen liegt. Die Stelle ist
+`node_modules/drizzle-orm/pg-core/dialect.cjs:64`:
+
+```js
+if (!lastDbMigration || Number(lastDbMigration.created_at) < migration.folderMillis) {
+```
+
+Verglichen wird also allein gegen den **einen** jüngsten Eintrag, nicht gegen
+die ganze Historie. `drizzle-kit generate` stempelt eine neue Migration mit der
+echten Uhrzeit ihrer Erzeugung.
+
+Im Journal stehen die Migrationen `0005_wandering_trgm` und
+`0006_famous_shinobi_shaw` mit **von Hand gesetzten, in der Zukunft liegenden**
+Zeitstempeln: `1786646400000` (2026-08-13T18:40:00Z) und `1786646460000`
+(2026-08-13T18:41:00Z). Daraus folgt unmittelbar:
+
+**Jede Migration, die vor dem 2026-08-13T18:41:00Z per `drizzle-kit generate`
+erzeugt wird, bekommt einen echten Zeitstempel, der kleiner ist als der von
+`0006` — und wird damit auf jeder Datenbank, in der `0006` bereits eingetragen
+ist, stillschweigend und dauerhaft übersprungen.** Kein Fehler, keine Ausgabe,
+kein Selbstheilen beim zweiten Lauf; die Tabelle fehlt einfach, und der Code,
+der sie erwartet, bricht später an einer Stelle, die nichts mit Migrationen zu
+tun hat.
+
+Nach diesem Zeitpunkt entschärft sich die Falle von selbst, weil eine echte
+Uhrzeit dann größer ist als `0006`. Bis dahin ist sie scharf.
+
+Frische Datenbanken sind nicht betroffen: Dort ist `lastDbMigration`
+undefiniert, der erste Zweig der Bedingung greift, und alles wird der Reihe
+nach angewendet. Genau deshalb kann **kein einziger Test dieses Projekts** den
+Fall zeigen — alle zwölf `migrate()`-Aufrufe legen eine frische Wegwerf-Datenbank
+an. In Plan 4, Task 6 ist der Fehler auf diese Weise bei 479 grünen Tests
+durchgerutscht und erst im Review aufgefallen, nachgestellt an zwei
+Wegwerf-Datenbanken außerhalb des Arbeitsverzeichnisses.
+
+Was dagegen jetzt existiert: `tests/migrations-zeitstempel.test.ts` hält die
+Zusicherung fest, aus der das Verhalten folgt — streng aufsteigende `when`-Werte
+in Feldreihenfolge. Das repariert die bestehenden Zeitstempel *nicht* (sie sind
+untereinander korrekt geordnet, nur in der Zukunft), und es fängt auch nicht
+den Fall oben ab; es fängt die *nächste* Handänderung, den schiefen Merge und
+die verstellte Uhr. Wer wegen genau dieser Fehlerklasse sucht, findet dort
+einen benannten Ort.
+
+Zwei Dinge bleiben offen und gehören vor den nächsten Einsatz geprüft:
+
+- **Ob die echte Produktionsdatenbank `0006` überhaupt eingetragen hat.** Unter
+  dem alten Journal (0006 zeitlich *vor* 0005) wäre sie es nicht — dann fehlen
+  dort die Einkaufszettel-Tabellen, obwohl die Migration erfolgreich meldete.
+- **Kein Test wendet Migrationen auf eine bereits migrierte Datenbank an.** Der
+  fehlerhafte Vergleichszweig wird nirgends betreten. Der Nachbau im Review von
+  Task 6 hat unter einer Minute gekostet und wäre die naheliegende Vorlage.
+
+### Erledigt
+
+- **Task 3:** Ein blinder Test (`faengtFehler(...)` ohne Auswertung des
+  Rückgabewerts) hätte auch dann bestanden, wenn die Datenbank-Bedingung gegen
+  `stueckzahl = 0` nicht mehr ausgelöst hätte. Aus dem Brief geerbt, behoben.
+- **Task 4:** Die Stückzahl-Multiplikation war auf der Seite „Bester
+  Einzelmarkt" ohne jede Regressionsabdeckung — richtig, aber nur per
+  Augenschein. Zusicherung auf `guenstigsterEinzelmarkt.summe` ergänzt.
+- **Task 5:** Der Abweisungstest mit `zettelItemId` scheiterte an der
+  Validierung, *bevor* die Transaktion überhaupt begann, und bewies damit vom
+  Rückbau nichts. Ersetzt durch eine echte Fehlerinjektion mitten in der
+  Transaktion (temporäre Prüfbedingung, wie in `tests/erfassen-aktionen.test.ts`
+  etabliert), die per erneutem Lesen belegt, dass der Haken ausbleibt.
+- **Task 6:** Der Zeitstempel von `0006` lag *vor* dem von `0005` — die
+  Migration wäre auf jeder bereits migrierten Datenbank nie angewendet worden.
+  Behoben, Hintergrund siehe oben.
+- **Task 7:** Der Regressionstest für die `aria-labelledby`-Korrektur fing gar
+  keine Regression: `dom-accessibility-api` (das Testing Library benutzt) weicht
+  an genau dieser Stelle bewusst von der Spezifikation ab, weshalb die kaputte
+  und die reparierte Fassung denselben berechneten Namen ergaben — grün in
+  beiden Fällen, auch in Playwrights ARIA-Abbild, unterschiedlich nur im echten
+  Chromium. Ersetzt durch eine Zusicherung auf die Verdrahtung selbst.
+- **Task 7:** Artikel sprangen nach jedem `+`/`−` und jedem Entfernen ans
+  Listenende, weil `ladeArtikel` kein `ORDER BY` hatte und ein `UPDATE` die
+  Zeile im Heap verschiebt. Für jeden früheren Test unsichtbar, weil dort nie
+  eine bereits gezeichnete Liste aktualisiert wurde. Mit
+  `orderBy(asc(shoppingListItem.id))` stabilisiert — eine feste, wenn auch
+  willkürliche Reihenfolge; die *richtige* Einfügereihenfolge bräuchte eine
+  `erstellt_am`-Spalte und damit eine Migration, was wegen der Falle oben
+  gerade der falsche Zeitpunkt war.
+- **Task 8:** Zwei Fehler, die sich ausschließlich im Browser zeigten — nicht
+  abgehakte Artikel sahen abgehakt aus (ein Klassengruppen-Konflikt in
+  `tailwind-merge` verschluckte eine Überschreibung stillschweigend), und React
+  setzte bei einem Fehler im Formular eines Freitext-Artikels *alle* Textfelder
+  zurück, nicht nur den Preis.
+
+### Warten
+
+- **Toter Import:** `import type { ReactNode }` in `optimierer-anzeige.tsx` wird
+  nicht verwendet.
+- **Ein Kommentar in `zettel-detail.tsx`/`abhak-formular.tsx` verspricht zu
+  viel.** Er liest sich, als würde das Abhaken eines Freitext-Artikels diesen in
+  einen katalogverknüpften Eintrag verwandeln. Das tut es nicht: Gesetzt wird
+  allein `abgehaktAm`, der Zettel-Eintrag bleibt ein Freitext-Eintrag, die
+  XOR-Bedingung bleibt unangetastet. Ein Produkt entsteht dabei sehr wohl — nur
+  eben im Katalog, nicht im Zettel.
+- **Eine Liste aus lauter Freitext-Artikeln zeigt dauerhaft „noch keine Preise
+  erfasst"**, auch nachdem Artikel abgehakt und Preise gespeichert wurden.
+  Dieser Zweig hängt an `aufteilung.length === 0`, und Freitext-Artikel gehen
+  bauartbedingt in keine der beiden Rechnungen ein. Sachlich stimmt die Aussage
+  über den Optimierer, für die Person davor liest sie sich wie ein Fehler.
+- **Die Abhak-Schaltfläche trägt `aria-expanded`, aber kein `aria-controls`** auf
+  das Formular, das sie aufklappt. Geringe praktische Wirkung, das Formular hat
+  eine eigene `aria-label`.
+- **Der Weg durch `erfasse` selbst ist nie im Browser gelaufen.** Task 9 hat die
+  Kette von echtem Postgres über `berechneOptimierung` bis in die
+  `OptimiererAnzeige` erstmals an echten Daten belegt (siehe
+  `docs/bilder/README.md`, Abschnitt zu Task 9) — die Verifikationspunkte 2, 3
+  und 6 gelten damit als gezeigt, samt Stückzahl-Multiplikation. Was dabei
+  **nicht** durchlaufen wurde, ist das Abhak-Formular: `erfasse` beginnt mit
+  `requireUser()`, und eine echte Sitzung ist in dieser Umgebung nicht
+  herstellbar. Das Abhaken samt Preis wurde deshalb auf der Datenebene über
+  dieselben Bibliotheksaufrufe ausgelöst, die `erfasse` in seiner Transaktion
+  macht. Unbelegt bleiben damit `erfasse`s Eingabezerlegung im Browser und die
+  Wirkung von `revalidatePath` in `erfassePreisAktion` — beides ist durch
+  Einzeltests gegen echtes Postgres abgedeckt und in Task 8 gegen Attrappen
+  gesehen, aber nicht durch die echte Aktion im echten Bündel.
+- **Warum kein Passkey-Weg zu einer echten Sitzung führt** — nachgeprüft, damit
+  es niemand ein zweites Mal versucht: `passkey()` wird in `src/lib/auth.ts`
+  ohne `registration.requireSession: false` eingesetzt, und
+  `/passkey/generate-register-options` liegt deshalb hinter
+  `freshSessionMiddleware`. Einen Passkey kann also nur anlegen, wer bereits
+  angemeldet ist; der einzige Weg zur ersten Sitzung bleibt Google-OAuth. Ein
+  virtueller WebAuthn-Authenticator hilft dagegen nicht — die Sperre liegt vor
+  dem Authenticator, nicht in ihm.
+- **Die Aufnahmen der Tasks 7 und 8 entstanden gegen provisorische, nicht
+  angemeldete Routen** und zeigen deshalb keine Navigationsleiste — dieselbe
+  Einschränkung wie bei den Scan-Aufnahmen aus Plan 3. Sie belegen Gestalt und
+  Zustände, nicht den angemeldeten Betrieb. Die sechs in Task 9 gezogenen
+  Aufnahmen zeigen die Leiste mitsamt dem neuen Ziel.
+- **Die zehn Aufnahmen aus Task 8 sind in `docs/bilder/README.md` nirgends
+  beschrieben** (`zettel-abhaken-handy-*`, `zettel-optimierer-handy-*`,
+  `zettel-optimierer-desktop`). Die Dateien liegen da, die Tabelle zu ihnen
+  fehlt — als einzige Gruppe im ganzen Verzeichnis. In Task 9 bewusst nicht
+  nachgetragen: Eine Beschreibung, die niemand gegen das Bild geprüft hat, wäre
+  schlechter als keine.
+- **Der Eintrag „Die Wortmarke ist am Handy der einzige Weg zurück" aus Plan 3
+  spricht von drei Zielen.** Seit Task 9 sind es vier (Erfassen, Produkte,
+  Zettel, für die betreibende Person zusätzlich Zugriff). Die Aussage über die
+  Wortmarke gilt unverändert, die Zahl daneben nicht mehr.
+- **Die Startseite hat weiterhin kein aktives Ziel in der Leiste** — der Eintrag
+  aus Plan 2 gilt unverändert, mit einem Ziel mehr daneben.
+
+### Bewusste Entscheidungen, keine Mängel
+
+- **Kein Offline-Modus.** Die ursprüngliche Design-Spec wollte den Zettel
+  offline-fähig (IndexedDB, Sync bei Reconnect). Phase 1 hat aber entschieden,
+  dass der Service Worker keinerlei angemeldete Inhalte zwischenspeichert; der
+  Zettel verhält sich deshalb wie `/erfassen` und `/produkte`. Konsistenz mit
+  einer bestehenden Sicherheitsentscheidung wiegt schwerer als die im Supermarkt
+  manchmal schwache Verbindung.
+- **Keine gebündelte Preisabfrage im Optimierer.** `holePreisMatrix` kostet rund
+  sechzehn Abfragen je Produkt, und die eigene Dokumentation warnt davor, sie je
+  Zeile einer Liste aufzurufen — genau das tut der Optimierer, einmal je
+  katalogverknüpftem Artikel. Bei einem Haushalt, ohne Nebenläufigkeit, mit
+  typischerweise unter dreißig Positionen ist das eine Frage von Millisekunden.
+  Im Code als bewusste Entscheidung vermerkt, nicht stillschweigend wiederholt.
+- **Keine Katalog-Vorschläge beim Eintippen eines Freitext-Artikels.** Freitext
+  bleibt reiner Merkposten. Eine Ähnlichkeitssuche beim Tippen wäre Bauaufwand
+  für einen Fall, der beim Abhaken ohnehin sauber aufgelöst wird — dort entsteht
+  bei Bedarf ganz regulär ein neues Produkt.
+- **Kein Besitzmodell je Nutzer, auch nicht für Listen.** Ein automatisches
+  Sicherheits-Review hat bei `hakeItemAb(tx, zettelItemId)` eine fehlende
+  Besitzprüfung gemeldet; dieselbe Beobachtung trifft auf alle Listen- und
+  Artikel-Aktionen zu. Bewertet und verworfen: Diese App hat *nirgends* ein
+  Mandanten- oder Besitzkonzept — ein Haushalt, alle angemeldeten Personen sehen
+  alles, gesichert allein durch die Freigabeliste in `requireUser()`. Eine
+  Prüfung nur an dieser Stelle täuschte ein Modell vor, das es sonst nicht gibt.
+- **Kein Löschen von Produkten aus dem Katalog.** Existiert heute nicht; das
+  Schema sieht per `on delete set null` dennoch vor, dass ein Zettel-Eintrag es
+  überstünde. Reine Vorsorge. Den ursprünglichen Namen dabei in `freitext`
+  nachzutragen ist bewusst nicht Teil dieses Plans — es gibt keine Löschstelle,
+  an die sich das hängen ließe.
+- **Billa/Spar-Anbindung und Beleg-Erkennung** sind eigene, spätere Pläne. Der
+  Optimierer liest ausschließlich, was in Plan 2 und 3 bereits erfasst wurde.
