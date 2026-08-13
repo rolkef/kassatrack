@@ -26,13 +26,19 @@ export const shoppingListItem = pgTable(
       .notNull()
       .references(() => shoppingList.id, { onDelete: "cascade" }),
     /*
-     * `set null`, nicht die Vorgabe (Verhindern): Produktlöschung existiert
-     * heute nirgends in der App, aber sollte sie einmal entstehen, darf ein
-     * gelöschtes Produkt einen Zettel-Eintrag nicht blockieren oder ihn
-     * mitreißen — er soll als Rest bestehen bleiben. Das Nachtragen des
-     * ursprünglichen Namens in `freitext` beim Löschen ist bewusst nicht
-     * Teil dieses Plans: Es gibt noch keine Lösch-Stelle, an die sich das
-     * hängen ließe (siehe Design-Spec, Abschnitt „Bewusst nicht drin").
+     * `set null` **schützt hier nicht**, entgegen dem, was diese Zeile
+     * nahelegt: Postgres prüft `genau_eine_quelle` auf der Zeile, die der
+     * `set null`-Auslöser hinterlässt. Dort ist dann `product_id` null und
+     * `freitext` ebenfalls — die Bedingung schlägt an, und das `delete` auf
+     * dem Produkt **bricht ab**. Faktisch verhält sich das wie `restrict`, nur
+     * meldet es sich als Bedingungsverletzung statt als Fremdschlüsselfehler.
+     *
+     * Heute unerreichbar, weil Produktlöschung nirgends in der App existiert.
+     * Wer sie einmal baut, muss `freitext` (etwa den bisherigen Produktnamen)
+     * in derselben Anweisung oder Transaktion nachtragen, sonst scheitert das
+     * Löschen. Das Nachtragen ist bewusst nicht Teil dieses Plans: Es gibt
+     * noch keine Lösch-Stelle, an die sich das hängen ließe (siehe
+     * Design-Spec, Abschnitt „Bewusst nicht drin").
      */
     productId: text("product_id").references(() => product.id, { onDelete: "set null" }),
     freitext: text("freitext"),

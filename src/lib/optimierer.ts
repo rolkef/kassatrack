@@ -1,3 +1,4 @@
+import { packungspreis } from "@/lib/einheiten";
 import { holeArtikel, type ZettelArtikel } from "@/lib/einkaufszettel";
 import { holeKetten, type Kette } from "@/lib/katalog";
 import { bestesAngebot, holePreisMatrix } from "@/lib/preise";
@@ -15,6 +16,15 @@ export type Optimierung = {
   einzelmaerkte: KettenSumme[];
   guenstigsterEinzelmarkt: KettenSumme | null;
   ersparnis: number | null;
+  /**
+   * Wie viele Artikel überhaupt in die Rechnung eingehen können.
+   *
+   * Ohne diese Zahl sind zwei sehr verschiedene Lagen von außen nicht
+   * unterscheidbar: ein Zettel, für den noch kein Preis erfasst ist, und ein
+   * Zettel aus lauter Freitext, für den es strukturell nie einen geben wird.
+   * Beide liefern eine leere Aufteilung.
+   */
+  katalogArtikelAnzahl: number;
 };
 
 /**
@@ -22,6 +32,15 @@ export type Optimierung = {
  * eine `holePreisMatrix`-Abfrage je katalogverknüpftem Artikel. Bei den zu
  * erwartenden Listengrößen (ein Haushalt, keine Nebenläufigkeit,
  * typischerweise unter 30 Positionen) ist das eine Frage von Millisekunden.
+ *
+ * Gerechnet wird durchweg in **Packungspreisen**, nicht in Grundpreisen.
+ * `PreisZeile.bestpreis` ist ein Grundpreis (€ je Kilo, Liter oder Stück) —
+ * ihn über mehrere Artikel zu addieren ergäbe keinen Betrag, den jemand an der
+ * Kassa zahlt, sondern eine mit der Gebindegröße gewichtete Summe. Deren
+ * Minimum ist ein anderes: Bei zwei Artikeln mit verschiedenen Gebindegrößen
+ * kann so das falsche Geschäft als „bester Einzelmarkt" herauskommen. Deshalb
+ * geht jeder `bestpreis` durch `packungspreis`, bevor er in eine Summe
+ * eingeht.
  */
 export async function berechneOptimierung(db: DbOderTransaktion, listId: string): Promise<Optimierung> {
   const alleArtikel = await holeArtikel(db, listId);
@@ -37,6 +56,7 @@ export async function berechneOptimierung(db: DbOderTransaktion, listId: string)
 
   for (const artikel of katalogArtikel) {
     const zeilen = await holePreisMatrix(db, artikel.produkt!.id);
+    const menge = { wert: artikel.produkt!.menge, einheit: artikel.produkt!.einheit };
 
     for (const zeile of zeilen) {
       if (zeile.bestpreis === null) {
@@ -44,12 +64,15 @@ export async function berechneOptimierung(db: DbOderTransaktion, listId: string)
         continue;
       }
       const bisherige = kettenSummen.get(zeile.kette.id) ?? 0;
-      kettenSummen.set(zeile.kette.id, bisherige + zeile.bestpreis * artikel.stueckzahl);
+      kettenSummen.set(
+        zeile.kette.id,
+        bisherige + packungspreis(zeile.bestpreis, menge) * artikel.stueckzahl,
+      );
     }
 
     const { heuteSieger } = bestesAngebot(zeilen);
     if (heuteSieger) {
-      const preis = heuteSieger.bestpreis! * artikel.stueckzahl;
+      const preis = packungspreis(heuteSieger.bestpreis!, menge) * artikel.stueckzahl;
       aufteilungSumme += preis;
       aufteilungNachKette.get(heuteSieger.kette.id)?.push({ artikel, preis });
     }
@@ -86,5 +109,6 @@ export async function berechneOptimierung(db: DbOderTransaktion, listId: string)
     einzelmaerkte,
     guenstigsterEinzelmarkt,
     ersparnis: guenstigsterEinzelmarkt ? guenstigsterEinzelmarkt.summe - aufteilungSumme : null,
+    katalogArtikelAnzahl: katalogArtikel.length,
   };
 }

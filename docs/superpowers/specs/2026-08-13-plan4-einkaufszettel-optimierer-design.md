@@ -86,8 +86,11 @@ Schema-Bedingungen in `src/db/schema/katalog.ts`/`preise.ts`.
 
 `stueckzahl` ist bewusst ein eigenes Feld und **nicht** zu verwechseln mit
 `product.menge` (der Packungsgröße aus Plan 2, z. B. 250 g) — hier zählt,
-wie viele Packungen gekauft werden sollen. Der Optimierer multipliziert
-`bestpreis × stueckzahl` je Artikel.
+wie viele Packungen gekauft werden sollen. Der Optimierer rechnet je Artikel
+`packungspreis(bestpreis, menge) × stueckzahl`: `bestpreis` ist ein
+**Grundpreis** (€ je Kilo, Liter oder Stück) und muss über `product.menge`
+erst auf den Packungspreis zurückgerechnet werden, bevor multipliziert und
+summiert wird.
 
 `product_id` referenziert `product` bewusst **ohne** `on delete cascade`:
 Verschwände ein Produkt aus einem anderen Grund, bliebe der Zettel-Eintrag
@@ -101,14 +104,24 @@ aktiver Mechanismus dieses Plans.
 Baut ausschließlich auf vorhandenen Plan-2-Funktionen auf
 (`holePreisMatrix`, `bestesAngebot`) — keine neue Preislogik.
 
+**Gerechnet wird in Packungspreisen, nicht in Grundpreisen.**
+`PreisZeile.bestpreis` ist € je Kilo, Liter oder Stück. Grundpreise mehrerer
+Artikel zu addieren ergibt keinen Kassabon-Betrag, sondern eine mit der
+Gebindegröße gewichteten Summe — und deren Minimum ist ein anderes: Bei zwei
+Artikeln mit verschiedenen Gebindegrößen käme so das falsche Geschäft als
+„bester Einzelmarkt" heraus. Jeder `bestpreis` geht deshalb durch
+`packungspreis(bestpreis, { wert: produkt.menge, einheit: produkt.einheit })`
+(die Umkehrung von `grundpreis()` in `src/lib/einheiten.ts`), bevor er in eine
+Summe eingeht.
+
 - **Optimale Aufteilung:** für jedes katalogverknüpfte Item
   `holePreisMatrix` + `bestesAngebot(...).heuteSieger` aufrufen,
-  `bestpreis × stueckzahl` je Kette aufsummieren. Ergebnis: eine
-  Gesamtsumme mit einer Zeile je Kette samt der Artikel, die dort zu kaufen
-  wären.
+  `packungspreis(bestpreis, menge) × stueckzahl` je Kette aufsummieren.
+  Ergebnis: eine Gesamtsumme mit einer Zeile je Kette samt der Artikel, die
+  dort zu kaufen wären.
 - **Bester Einzelmarkt:** für jede Kette die Summe aus
-  `bestpreis × stueckzahl` über alle Items, bei denen diese Kette selbst
-  einen `bestpreis` trägt. Fehlt der Kette bei auch nur einem Item der
+  `packungspreis(bestpreis, menge) × stueckzahl` über alle Items, bei denen
+  diese Kette selbst einen `bestpreis` trägt. Fehlt der Kette bei auch nur einem Item der
   Preis, gilt sie als **unvollständig** — keine Summe, sondern ein Hinweis
   („nicht alles hier erfasst"), und sie fällt aus dem Einzelmarkt-Vergleich
   heraus. Unter den vollständigen Ketten gewinnt die günstigste.
@@ -118,7 +131,10 @@ Baut ausschließlich auf vorhandenen Plan-2-Funktionen auf
   könnte).
 - Freitext-Items fließen in **keine** der beiden Rechnungen ein.
 - Eine Liste, in der kein einziges Item einen Preis hat, zeigt „noch keine
-  Preise erfasst" statt einer leeren oder irreführenden Rechnung.
+  Preise erfasst" statt einer leeren oder irreführenden Rechnung. Eine Liste
+  ganz **ohne** katalogverknüpfte Items bekommt einen eigenen Satz: Für sie
+  ändert sich durch Abhaken nie etwas, und derselbe Text läse sich dort wie
+  ein fehlgeschlagenes Speichern.
 
 ## Oberfläche
 

@@ -58,6 +58,7 @@ function optimierung(ueberschreibung: Partial<Optimierung> = {}): Optimierung {
     ],
     guenstigsterEinzelmarkt: { kette: SPAR, summe: 3.99, vollstaendig: true },
     ersparnis: 0.31,
+    katalogArtikelAnzahl: 2,
     ...ueberschreibung,
   };
 }
@@ -149,6 +150,33 @@ describe("OptimiererAnzeige — die eine Aussage", () => {
 
     expect(screen.getByText(/noch keine Preise/i)).toBeDefined();
     expect(document.body.querySelector("details")).toBeNull();
+  });
+
+  /*
+   * Ein Zettel aus lauter Freitext. „Noch keine Preise erfasst" wäre hier
+   * falsch und obendrein irreführend: Der Satz verspricht, dass sich etwas
+   * ändert, sobald man abhakt — und genau das tut es nie. Wer daraufhin ein
+   * zweites Mal speichert, verschiebt den Median.
+   */
+  it("sagt bei einem Zettel ohne Katalogartikel, dass es nichts zu vergleichen gibt", () => {
+    render(
+      <OptimiererAnzeige
+        optimierung={optimierung({
+          aufteilung: [],
+          aufteilungSumme: 0,
+          einzelmaerkte: [
+            { kette: SPAR, summe: 0, vollstaendig: false },
+            { kette: HOFER, summe: 0, vollstaendig: false },
+          ],
+          guenstigsterEinzelmarkt: null,
+          ersparnis: null,
+          katalogArtikelAnzahl: 0,
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/nichts zu vergleichen/i)).toBeDefined();
+    expect(screen.queryByText(/noch keine Preise/i)).toBeNull();
   });
 });
 

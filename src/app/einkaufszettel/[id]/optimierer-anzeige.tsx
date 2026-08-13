@@ -27,8 +27,35 @@ import type { AufteilungsZeile, KettenSumme, Optimierung } from "@/lib/optimiere
  * JavaScript dafür.
  */
 export function OptimiererAnzeige({ optimierung }: { optimierung: Optimierung }) {
-  const { aufteilung, aufteilungSumme, einzelmaerkte, guenstigsterEinzelmarkt, ersparnis } =
-    optimierung;
+  const {
+    aufteilung,
+    aufteilungSumme,
+    einzelmaerkte,
+    guenstigsterEinzelmarkt,
+    ersparnis,
+    katalogArtikelAnzahl,
+  } = optimierung;
+
+  /*
+   * Zwei Lagen mit derselben leeren Aufteilung, aber gegensätzlichem nächsten
+   * Schritt — deshalb zwei Sätze und nicht einer.
+   *
+   * Ein Zettel aus lauter Freitext bekommt nie eine Rechnung: Freitexte gehen
+   * strukturell in keine der beiden Summen ein. Stünde hier „noch keine Preise
+   * erfasst", läse sich das nach dem Abhaken und Eintragen wie ein
+   * fehlgeschlagenes Speichern — und die zweite, überflüssige Eingabe
+   * verschöbe den Median.
+   */
+  if (katalogArtikelAnzahl === 0) {
+    return (
+      <div className="rounded-block bg-hinweis px-4 py-3.5 text-[0.9375rem] leading-relaxed text-auf-hinweis">
+        <p>
+          Für diesen Zettel gibt es nichts zu vergleichen — Freitexte gehen in die Rechnung nicht
+          ein. Such einen Artikel im Katalog, dann steht hier, wo er am wenigsten kostet.
+        </p>
+      </div>
+    );
+  }
 
   /*
    * Kein einziger Artikel trägt irgendwo einen Preis. Eine Summe von null wäre
@@ -284,7 +311,7 @@ function betragMitEinheit(wert: number): string {
   return `${formatiereBetrag(wert)} €`;
 }
 
-function Eyebrow({ children }: { children: React.ReactNode }) {
+function Eyebrow({ children }: { children: ReactNode }) {
   return (
     <p className="text-[0.75rem] font-semibold tracking-[0.1em] text-gedaempft uppercase">
       {children}

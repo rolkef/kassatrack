@@ -141,6 +141,14 @@ export async function entferneArtikel(db: DbOderTransaktion, itemId: string): Pr
   await db.delete(shoppingListItem).where(eq(shoppingListItem.id, itemId));
 }
 
+/**
+ * Trifft das `update` keine Zeile — weil der Artikel inzwischen anderswo
+ * entfernt wurde, etwa in einem zweiten Reiter —, bleibt das folgenlos und
+ * `erfasse` meldet trotzdem Erfolg: Der Preis ist dann korrekt erfasst, und
+ * das ist das wichtigere der beiden Ergebnisse. Ein Fehler hier ließe die
+ * Transaktion zurückrollen und verwürfe die Beobachtung wegen eines Hakens,
+ * den es nicht mehr zu setzen gibt.
+ */
 export async function hakeItemAb(db: DbOderTransaktion, itemId: string): Promise<void> {
   await db
     .update(shoppingListItem)
