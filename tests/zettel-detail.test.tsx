@@ -5,8 +5,9 @@ import { screen } from "./dom";
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
+import type { Ergebnis } from "@/app/erfassen/zustand";
 import type { ZettelArtikel } from "@/lib/einkaufszettel";
-import type { Produkt } from "@/lib/katalog";
+import type { Kette, Produkt } from "@/lib/katalog";
 
 /*
  * Die vier Aktionen werden hereingereicht, nicht per `mock.module` ersetzt —
@@ -30,6 +31,22 @@ const ARTIKEL: ZettelArtikel[] = [
 
 const FREITEXT_ARTIKEL: ZettelArtikel[] = [
   { id: "a2", listId: "l1", produkt: null, freitext: "Salz", stueckzahl: 2, abgehaktAm: null },
+];
+
+const ABGEHAKT: ZettelArtikel[] = [
+  {
+    id: "a3",
+    listId: "l1",
+    produkt: BUTTER,
+    freitext: null,
+    stueckzahl: 1,
+    abgehaktAm: new Date("2026-08-13T09:00:00Z"),
+  },
+];
+
+const KETTEN: Kette[] = [
+  { id: "c1", name: "Billa", kuerzel: "billa" },
+  { id: "c2", name: "Spar", kuerzel: "spar" },
 ];
 
 /** Was die Suchattrappe zurückgibt — je Test gesetzt. */
@@ -65,6 +82,13 @@ const entferneArtikel = mock(async (_itemId: string, _listId: string): Promise<v
 const sucheProdukte = mock(async (begriff: string): Promise<Produkt[]> =>
   begriff.trim() === "" ? [] : suchTreffer,
 );
+const erfassePreis = mock(
+  async (_vorher: Ergebnis | undefined, _formular: FormData): Promise<Ergebnis> => ({
+    art: "erfolg",
+    produktId: "p1",
+    grundpreis: "9,96 €/kg",
+  }),
+);
 
 const { ZettelDetail } = await import("@/app/einkaufszettel/[id]/zettel-detail");
 
@@ -78,17 +102,24 @@ afterEach(() => {
   stueckzahlAendern.mockClear();
   entferneArtikel.mockClear();
   sucheProdukte.mockClear();
+  erfassePreis.mockClear();
 });
 
-function zeichne(artikel: ZettelArtikel[] = ARTIKEL) {
+function zeichne(
+  artikel: ZettelArtikel[] = ARTIKEL,
+  empfohleneKetten: Record<string, string> = {},
+) {
   return render(
     <ZettelDetail
       listId="l1"
       artikel={artikel}
+      ketten={KETTEN}
+      empfohleneKetten={empfohleneKetten}
       artikelHinzufuegen={artikelHinzufuegen}
       stueckzahlAendern={stueckzahlAendern}
       entferneArtikel={entferneArtikel}
       sucheProdukte={sucheProdukte}
+      erfassePreis={erfassePreis}
     />,
   );
 }
@@ -298,5 +329,97 @@ describe("ZettelDetail — entfernen", () => {
     expect(screen.getByRole("button", { name: /Entfernen.*Butter/ })).toBeDefined();
     expect(screen.getByRole("button", { name: /Eins mehr.*Butter/ })).toBeDefined();
     expect(screen.getByRole("button", { name: /Eins weniger.*Butter/ })).toBeDefined();
+    expect(screen.getByRole("button", { name: /Abhaken.*Butter/ })).toBeDefined();
+  });
+});
+
+describe("ZettelDetail — abhaken", () => {
+  it("blendet nach dem Antippen von Abhaken das Preisformular ein", async () => {
+    zeichne();
+    await userEvent.click(screen.getByRole("button", { name: /Abhaken/ }));
+
+    expect(screen.getByRole("form", { name: /Preis eintragen, Butter/ })).toBeDefined();
+    expect(screen.getByLabelText("Preis")).toBeDefined();
+  });
+
+  /*
+   * Zwei offene Preisformulare untereinander wären zwei Tastaturen und zwei
+   * Speichern-Knöpfe für eine Handlung, die man einzeln erledigt.
+   */
+  it("öffnet höchstens ein Formular zugleich", async () => {
+    zeichne([...ARTIKEL, ...FREITEXT_ARTIKEL]);
+
+    await userEvent.click(screen.getByRole("button", { name: /Abhaken, Butter/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Abhaken, Salz/ }));
+
+    expect(screen.queryByRole("form", { name: /Butter/ })).toBeNull();
+    expect(screen.getByRole("form", { name: /Salz/ })).toBeDefined();
+  });
+
+  /*
+   * Die Empfehlung des Optimierers erreicht die Zeile — sonst stünde das
+   * Formular vor fünf gleich wahrscheinlichen Ketten, und der ganze Vorteil
+   * des Abhakens im richtigen Geschäft wäre weg.
+   */
+  it("reicht die empfohlene Kette an das Formular durch", async () => {
+    zeichne(ARTIKEL, { a1: "spar" });
+    await userEvent.click(screen.getByRole("button", { name: /Abhaken/ }));
+
+    expect(screen.getByRole("radio", { name: "Spar" })).toHaveProperty("checked", true);
+  });
+
+  /*
+   * Ein Freitext hat kein Produkt hinter sich — das Formular muss ihn trotzdem
+   * annehmen und dabei nach Produkt und Menge fragen. Sonst wäre eine Notiz auf
+   * dem Zettel eine Zeile, die man nie abhaken kann.
+   */
+  it("fragt bei einem Freitext-Artikel Produkt und Menge ab", async () => {
+    zeichne(FREITEXT_ARTIKEL);
+    await userEvent.click(screen.getByRole("button", { name: /Abhaken/ }));
+
+    expect(screen.getByLabelText("Produkt")).toHaveProperty("value", "Salz");
+    expect(screen.getByLabelText("Menge")).toHaveProperty("value", "");
+  });
+
+  it("schließt das Formular beim Abbrechen, ohne etwas zu erfassen", async () => {
+    zeichne();
+    await userEvent.click(screen.getByRole("button", { name: /Abhaken/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Abbrechen" }));
+
+    expect(screen.queryByRole("form")).toBeNull();
+    expect(erfassePreis).not.toHaveBeenCalled();
+  });
+
+  it("erfasst den Preis mitsamt Zettel-Bezug und schließt danach", async () => {
+    zeichne(ARTIKEL, { a1: "spar" });
+    await userEvent.click(screen.getByRole("button", { name: /Abhaken/ }));
+    await userEvent.type(screen.getByLabelText("Preis"), "2,49");
+    await userEvent.click(screen.getByRole("button", { name: "Speichern" }));
+
+    await waitFor(() => {
+      expect(erfassePreis).toHaveBeenCalled();
+    });
+    const [, formular] = erfassePreis.mock.calls[0]!;
+    expect(formular.get("zettelItemId")).toBe("a1");
+    expect(formular.get("listId")).toBe("l1");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("form")).toBeNull();
+    });
+  });
+
+  /*
+   * Der Haken markiert ein abgeschlossenes Ereignis — ein Preis wurde erfasst
+   * —, keinen umkehrbaren Schalter. Ihn erneut anzubieten hieße, ein zweites
+   * Mal denselben Preis zu erfassen und damit den Referenzpreis der Kette zu
+   * verschieben.
+   */
+  it("bietet einen abgehakten Artikel nicht erneut zum Abhaken an", () => {
+    zeichne(ABGEHAKT);
+
+    expect(screen.queryByRole("button", { name: /Abhaken/ })).toBeNull();
+    expect(screen.getByText(/abgehakt/i)).toBeDefined();
+    // Entfernen bleibt: Wer die Zeile doch nicht will, wird sie los.
+    expect(screen.getByRole("button", { name: /Entfernen/ })).toBeDefined();
   });
 });

@@ -2,7 +2,8 @@ import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { erzeugeListe, holeArtikel } from "@/lib/einkaufszettel";
-import { legeProduktAn } from "@/lib/katalog";
+import { legeKettenAn, legeProduktAn } from "@/lib/katalog";
+import { holePreisMatrix } from "@/lib/preise";
 import type { ZugriffsDb } from "@/lib/zugriff";
 import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
 import { faengtFehler } from "./helfer/fehler";
@@ -68,12 +69,16 @@ await mock.module("@/lib/sitzung", () => ({
 const {
   artikelHinzufuegenAktion,
   entferneArtikelAktion,
+  erfassePreisAktion,
   stueckzahlAktion,
   sucheProdukteAktion,
 } = await import("@/app/einkaufszettel/[id]/aktionen");
 
 beforeEach(async () => {
   await umgebung.db.execute(sql`truncate table shopping_list, product cascade`);
+  // Die Ketten stehen außerhalb des `truncate` — `erfassePreisAktion` braucht
+  // sie, weil `erfasse` das Kürzel aus dem Formular gegen sie auflöst.
+  await legeKettenAn(umgebung.db);
   angemeldet = true;
 });
 
@@ -334,5 +339,98 @@ describe("sucheProdukteAktion", () => {
     const fehler = await faengtFehler(() => sucheProdukteAktion("Butter"));
 
     expect(fehler).toBeDefined();
+  });
+});
+
+/*
+ * Der Abhak-Fluss von der Serverseite.
+ *
+ * Geprüft wird hier nicht `erfasse` noch einmal — das tut
+ * `tests/erfassen-aktionen.test.ts` in aller Ausführlichkeit, inklusive des
+ * Rückbaus mitten in der Transaktion. Geprüft wird, dass die Hülle des
+ * Listendetails *genau* das durchreicht: dass ein Abhaken über sie wirklich
+ * Preis **und** Haken hinterlässt, und dass eine abgewiesene Eingabe weder das
+ * eine noch das andere zurücklässt.
+ */
+describe("erfassePreisAktion", () => {
+  async function zettelMitButter() {
+    const zettel = await liste();
+    const produkt = await legeProduktAn(umgebung.db, {
+      name: "Butter",
+      marke: "Berglandmilch",
+      menge: 250,
+      einheit: "G",
+    });
+    await artikelHinzufuegenAktion({ listId: zettel.id, produktId: produkt.id });
+    const [artikel] = await holeArtikel(umgebung.db, zettel.id);
+    return { zettel, artikel: artikel! };
+  }
+
+  function formular(zettelId: string, artikelId: string, preis: string): FormData {
+    const daten = new FormData();
+    daten.set("zettelItemId", artikelId);
+    daten.set("listId", zettelId);
+    daten.set("kette", "spar");
+    daten.set("name", "Butter");
+    daten.set("marke", "Berglandmilch");
+    daten.set("menge", "250 g");
+    daten.set("preisart", "NORMAL");
+    daten.set("preis", preis);
+    return daten;
+  }
+
+  it("erfasst den Preis und hakt den Artikel ab", async () => {
+    const { zettel, artikel } = await zettelMitButter();
+
+    const ergebnis = await erfassePreisAktion(
+      undefined,
+      formular(zettel.id, artikel.id, "2,49"),
+    );
+
+    expect(ergebnis.art).toBe("erfolg");
+
+    const [danach] = await holeArtikel(umgebung.db, zettel.id);
+    expect(danach?.abgehaktAm).toBeInstanceOf(Date);
+
+    // Und der Preis liegt tatsächlich bei Spar, nicht bloß irgendwo.
+    const matrix = await holePreisMatrix(umgebung.db, artikel.produkt!.id);
+    const spar = matrix.find((zeile) => zeile.kette.kuerzel === "spar");
+    expect(spar?.bestpreis).toBeGreaterThan(0);
+  });
+
+  /*
+   * Die Zusage aus dem Entwurf: Abhaken und Preis speichern sind ein Vorgang.
+   * Bricht die Prüfung ab, bleibt der Artikel unabgehakt — sonst stünde ein
+   * Häkchen über einem Preis, den es nie gegeben hat.
+   */
+  it("lässt den Artikel unabgehakt, wenn die Eingabe abgewiesen wird", async () => {
+    const { zettel, artikel } = await zettelMitButter();
+
+    const ergebnis = await erfassePreisAktion(undefined, formular(zettel.id, artikel.id, "-1"));
+
+    expect(ergebnis.art).toBe("fehler");
+
+    const [danach] = await holeArtikel(umgebung.db, zettel.id);
+    expect(danach?.abgehaktAm).toBeNull();
+    expect(await holePreisMatrix(umgebung.db, artikel.produkt!.id)).toHaveLength(5);
+    expect(
+      (await holePreisMatrix(umgebung.db, artikel.produkt!.id)).every(
+        (zeile) => zeile.bestpreis === null,
+      ),
+    ).toBe(true);
+  });
+
+  it("verlangt eine Anmeldung", async () => {
+    const { zettel, artikel } = await zettelMitButter();
+    angemeldet = false;
+
+    const fehler = await faengtFehler(() =>
+      erfassePreisAktion(undefined, formular(zettel.id, artikel.id, "2,49")),
+    );
+
+    expect(fehler).toBeDefined();
+    angemeldet = true;
+    const [danach] = await holeArtikel(umgebung.db, zettel.id);
+    expect(danach?.abgehaktAm).toBeNull();
   });
 });

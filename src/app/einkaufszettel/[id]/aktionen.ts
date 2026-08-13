@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { erfasse } from "@/app/erfassen/aktionen";
+import type { Ergebnis } from "@/app/erfassen/zustand";
 import { db } from "@/db";
 import {
   aendereStueckzahl,
@@ -13,7 +15,7 @@ import { requireUser } from "@/lib/sitzung";
 import { STUECKZAHL_OBERGRENZE } from "./zustand";
 
 /*
- * Die vier Aktionen des Listendetails.
+ * Die Aktionen des Listendetails.
  *
  * `requireUser()` steht in allen als **erste** Anweisung, wie in
  * `src/app/einkaufszettel/aktionen.ts`: Server-Aktionen sind eigene Endpunkte
@@ -124,4 +126,49 @@ export async function entferneArtikelAktion(itemId: string, listId: string): Pro
 export async function sucheProdukteAktion(begriff: string): Promise<Produkt[]> {
   await requireUser();
   return sucheProdukte(db, begriff);
+}
+
+/**
+ * Die Preiserfassung aus Plan 2, so wie der Zettel sie braucht.
+ *
+ * `erfasse` bleibt unverändert — Prüfung, Transaktion und das Abhaken über
+ * `zettelItemId` gehören dorthin und nirgendwo anders hin. Was hier dazukommt,
+ * ist genau eine Zeile: das Verwerfen des Zwischenspeichers dieses Zettels.
+ *
+ * Ohne sie bliebe der Bildschirm nach dem Speichern stehen, wie er war. Der
+ * Haken sitzt dann in der Datenbank, aber `ZettelDetail` bekommt seine Liste
+ * aus einem Server-Durchlauf, den nichts angestoßen hat — der Artikel sähe
+ * weiter unabgehakt aus, und die Optimierer-Anzeige darüber rechnete ohne den
+ * gerade erfassten Preis. Wer daraufhin ein zweites Mal speicherte, verschöbe
+ * mit der doppelten Beobachtung den Referenzpreis dieser Kette.
+ *
+ * `erfasse` selbst kann das nicht tun: Es kennt die Artikelkennung, aber nicht
+ * die Liste, auf der sie steht. Die `listId` kommt deshalb als eigenes Feld
+ * aus dem Formular.
+ *
+ * Eigenes `catch`, wie bei `artikelHinzufuegenAktion`: Ab dem `return` von
+ * `erfasse` steht der Preis in der Datenbank. Käme ein Fehler beim Verwerfen
+ * bis zur Oberfläche durch, sähe das gelungene Speichern wie ein
+ * fehlgeschlagenes aus — und der zweite Versuch wäre genau die doppelte
+ * Beobachtung, die zu verhindern ist.
+ */
+export async function erfassePreisAktion(
+  vorher: Ergebnis | undefined,
+  formular: FormData,
+): Promise<Ergebnis> {
+  // Kein `requireUser()` davor: `erfasse` hat es als erste Anweisung, und ein
+  // zweiter Aufruf hier wäre eine zweite Sitzungsabfrage ohne zweiten Nutzen.
+  const ergebnis = await erfasse(vorher, formular);
+  if (ergebnis.art !== "erfolg") return ergebnis;
+
+  const listId = String(formular.get("listId") ?? "").trim();
+  if (listId !== "") {
+    try {
+      revalidatePath(`/einkaufszettel/${listId}`);
+    } catch (ursache) {
+      console.error("Zettel konnte nach dem Abhaken nicht neu erzeugt werden:", ursache);
+    }
+  }
+
+  return ergebnis;
 }

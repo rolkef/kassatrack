@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useId, useOptimistic, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useOptimistic, useRef, useState, useTransition } from "react";
+import type { ErfassungsAktion } from "@/app/erfassen/zustand";
 import { Schaltflaeche } from "@/components/ui/schaltflaeche";
 import { formatierePackung } from "@/lib/einheiten";
 import type { ZettelArtikel } from "@/lib/einkaufszettel";
-import type { Produkt } from "@/lib/katalog";
+import type { Kette, Produkt } from "@/lib/katalog";
+import { AbhakFormular } from "./abhak-formular";
 import {
   STUECKZAHL_OBERGRENZE,
   type EntfernenAktion,
@@ -54,21 +56,40 @@ type Aenderung =
  * „eins mehr"; seine eigenen Pfeilchen sind rund zehn Pixel hoch und damit
  * unter jeder Daumengrenze. Auf einem Einkaufszettel ändert sich die
  * Stückzahl fast immer um eins.
+ *
+ * **Der Haken sitzt links, wo er auf Papier auch säße.** Er ist die Geste
+ * dieses Bildschirms im Geschäft und darf sich nicht mit Zähler und Entfernen
+ * um denselben Platz streiten — am Handy stünden sonst drei Ziele
+ * nebeneinander, die alle derselbe Daumen trifft. Links vor dem Namen hat er
+ * seine eigene Spalte, liest sich als Einkaufszettel und ist zugleich die
+ * Anzeige: Was erledigt ist, trägt dort ein gefülltes Häkchen.
  */
 export function ZettelDetail({
   listId,
   artikel,
+  ketten,
+  empfohleneKetten,
   artikelHinzufuegen,
   stueckzahlAendern,
   entferneArtikel,
   sucheProdukte,
+  erfassePreis,
 }: {
   listId: string;
   artikel: ZettelArtikel[];
+  ketten: Kette[];
+  /**
+   * Artikelkennung → Kettenkürzel, aus der optimalen Aufteilung. Bewusst
+   * vorab aufgelöst statt der ganzen `Optimierung`: Die Zeile braucht genau
+   * eine Zeichenkette, und die Oberfläche muss die Rechnung dahinter nicht
+   * kennen.
+   */
+  empfohleneKetten: Record<string, string>;
   artikelHinzufuegen: HinzufuegenAktion;
   stueckzahlAendern: StueckzahlAktion;
   entferneArtikel: EntfernenAktion;
   sucheProdukte: SuchAktion;
+  erfassePreis: ErfassungsAktion;
 }) {
   const feldId = useId();
   const hilfeId = useId();
@@ -85,6 +106,24 @@ export function ZettelDetail({
   const [eingabe, setEingabe] = useState("");
   const [treffer, setTreffer] = useState<Produkt[]>([]);
   const [laedtTreffer, setLaedtTreffer] = useState(false);
+
+  /*
+   * Welcher Artikel gerade abgehakt wird — höchstens einer. Zwei offene
+   * Preisformulare untereinander wären zwei Tastaturen und zwei
+   * Speichern-Knöpfe für eine Handlung, die man einzeln erledigt.
+   *
+   * Der Haken selbst steht **nicht** hier: Ihn setzt `erfasse` in derselben
+   * Transaktion wie den Preis, und sichtbar wird er über den neu erzeugten
+   * Server-Durchlauf. Ein eigener Zustand dafür behauptete „erledigt", bevor
+   * es das ist — genau der Zwischenstand, den der Entwurf ausschließt.
+   */
+  const [abzuhaken, setAbzuhaken] = useState<string | null>(null);
+  /*
+   * Stabil gehalten, weil `AbhakFormular` sie in einem Effekt aufruft: Eine
+   * bei jedem Render neu erzeugte Funktion ließe den Effekt nach jedem Render
+   * wieder anlaufen.
+   */
+  const schliesseAbhaken = useCallback(() => setAbzuhaken(null), []);
 
   const [, starteUebergang] = useTransition();
 
@@ -176,6 +215,9 @@ export function ZettelDetail({
   }
 
   function entferne(eintrag: ZettelArtikel) {
+    // Ein offenes Preisformular über einer Zeile, die es gleich nicht mehr
+    // gibt, schriebe seinen Preis auf einen gelöschten Zettel-Eintrag.
+    if (abzuhaken === eintrag.id) setAbzuhaken(null);
     starteUebergang(async () => {
       aendere({ art: "entfernt", id: eintrag.id });
       await entferneArtikel(eintrag.id, listId);
@@ -296,6 +338,15 @@ export function ZettelDetail({
               <ArtikelZeile
                 key={eintrag.id}
                 eintrag={eintrag}
+                listId={listId}
+                ketten={ketten}
+                empfohleneKette={empfohleneKetten[eintrag.id] ?? null}
+                erfassePreis={erfassePreis}
+                offen={abzuhaken === eintrag.id}
+                schalteAbhaken={() =>
+                  setAbzuhaken((bisher) => (bisher === eintrag.id ? null : eintrag.id))
+                }
+                schliesseAbhaken={schliesseAbhaken}
                 setzeStueckzahl={setzeStueckzahl}
                 entferne={entferne}
               />
@@ -309,99 +360,233 @@ export function ZettelDetail({
 
 function ArtikelZeile({
   eintrag,
+  listId,
+  ketten,
+  empfohleneKette,
+  erfassePreis,
+  offen,
+  schalteAbhaken,
+  schliesseAbhaken,
   setzeStueckzahl,
   entferne,
 }: {
   eintrag: ZettelArtikel;
+  listId: string;
+  ketten: Kette[];
+  empfohleneKette: string | null;
+  erfassePreis: ErfassungsAktion;
+  offen: boolean;
+  schalteAbhaken: () => void;
+  schliesseAbhaken: () => void;
   setzeStueckzahl: (eintrag: ZettelArtikel, stueckzahl: number) => void;
   entferne: (eintrag: ZettelArtikel) => void;
 }) {
   const bezeichnung = eintrag.produkt?.name ?? eintrag.freitext ?? "Artikel";
+  const abgehakt = eintrag.abgehaktAm !== null;
 
   return (
-    /*
-      Am Handy stapeln sich Name und Bedienelemente, ab `sm` stehen sie
-      nebeneinander. Gestapelt bleibt für den Namen die volle Breite — ein
-      Produktname mit Marke und Größe daneben in eine Zeile gequetscht bräche
-      sonst nach jedem Wort um.
-    */
-    <li className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-[1.0625rem] leading-snug font-medium break-words">
-          {bezeichnung}
-        </span>
-        <span className="text-xs text-gedaempft">
-          {eintrag.produkt ? (
-            <>
-              {eintrag.produkt.marke ? `${eintrag.produkt.marke} · ` : ""}
-              {formatierePackung(eintrag.produkt.menge, eintrag.produkt.einheit)}
-            </>
+    <li className="flex flex-col gap-2 py-3">
+      {/*
+        Am Handy stapeln sich Name und Bedienelemente, ab `sm` stehen sie
+        nebeneinander. Gestapelt bleibt für den Namen die volle Breite — ein
+        Produktname mit Marke und Größe daneben in eine Zeile gequetscht bräche
+        sonst nach jedem Wort um.
+      */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          {abgehakt ? (
+            <Erledigt />
           ) : (
             /*
-              Warum das dasteht: Task 8 rechnet die günstigste Kette aus den
-              Katalogartikeln aus und lässt Freitexte aus. Ohne diesen Satz
-              stünde dort eine Summe, der eine Zeile fehlt, ohne dass jemand
-              sagen könnte, welche.
+              Rahmen und Fläche sitzen am Kästchen, nicht an der Schaltfläche —
+              dieselbe Aufteilung wie beim `Zaehlknopf`. Die Schaltfläche liefert
+              nur das 44-px-Ziel: Ein 24-px-Kästchen allein wäre am Daumen nicht
+              zu treffen, und ein 44-px-Kästchen sähe aus wie ein Knopf.
             */
-            "kein Preisvergleich"
+            <Schaltflaeche
+              variante="neben"
+              groesse="dicht"
+              aria-label={`Abhaken, ${bezeichnung}`}
+              aria-expanded={offen}
+              onClick={schalteAbhaken}
+              className="h-11 w-11 shrink-0 border-0 bg-transparent px-0"
+              symbol={<Kaestchen offen={offen} />}
+            />
           )}
-        </span>
-      </div>
 
-      {/* `gap-3` zwischen Zähler und Entfernen: zwei Ziele, die derselbe
-          Daumen trifft, brauchen mehr als die 8 px Mindestabstand. */}
-      <div className="flex shrink-0 items-center gap-3">
-        <div
-          role="group"
-          aria-label={`Stückzahl, ${bezeichnung}`}
-          className="flex items-center gap-1 rounded-klein border border-linie-stark"
-        >
-          <Zaehlknopf
-            beschriftung={`Eins weniger, ${bezeichnung}`}
-            zeichen="−"
-            aus={eintrag.stueckzahl <= 1}
-            beiKlick={() => setzeStueckzahl(eintrag, eintrag.stueckzahl - 1)}
-          />
-          <span
-            data-testid={`stueckzahl-${eintrag.id}`}
-            aria-live="polite"
-            aria-atomic="true"
-            className="zahlen min-w-8 text-center text-base tabular-nums"
-          >
-            {eintrag.stueckzahl}
-            <span className="sr-only"> Stück {bezeichnung}</span>
-          </span>
-          <Zaehlknopf
-            beschriftung={`Eins mehr, ${bezeichnung}`}
-            zeichen="+"
-            aus={eintrag.stueckzahl >= STUECKZAHL_OBERGRENZE}
-            beiKlick={() => setzeStueckzahl(eintrag, eintrag.stueckzahl + 1)}
-          />
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span
+              className={
+                "text-[1.0625rem] leading-snug font-medium break-words " +
+                (abgehakt ? "text-gedaempft line-through decoration-linie-stark" : "")
+              }
+            >
+              {bezeichnung}
+              {abgehakt ? <span className="sr-only"> — abgehakt</span> : null}
+            </span>
+            <span className="text-xs text-gedaempft">
+              {eintrag.produkt ? (
+                <>
+                  {eintrag.produkt.marke ? `${eintrag.produkt.marke} · ` : ""}
+                  {formatierePackung(eintrag.produkt.menge, eintrag.produkt.einheit)}
+                </>
+              ) : (
+                /*
+                  Warum das dasteht: Der Optimierer rechnet die günstigste Kette
+                  aus den Katalogartikeln aus und lässt Freitexte aus. Ohne
+                  diesen Satz stünde dort eine Summe, der eine Zeile fehlt, ohne
+                  dass jemand sagen könnte, welche. Abhaken lässt sich ein
+                  Freitext trotzdem — dabei wird er zum Katalogprodukt.
+                */
+                "kein Preisvergleich"
+              )}
+            </span>
+          </div>
         </div>
 
-        {/*
-          Mehrere Zeilen tragen denselben Knopf. Ohne den Namen der Ware hieße
-          jeder von ihnen bloß „Entfernen" — in einer vorgelesenen Liste von
-          Schaltflächen wäre keiner vom anderen zu unterscheiden.
+        {/* `gap-3` zwischen Zähler und Entfernen: zwei Ziele, die derselbe
+            Daumen trifft, brauchen mehr als die 8 px Mindestabstand. `pl-14`
+            rückt die Reihe am Handy unter den Namen statt unter den Haken —
+            44 px Knopf plus 12 px Abstand. */}
+        <div className="flex shrink-0 items-center gap-3 pl-14 sm:pl-0">
+          <div
+            role="group"
+            aria-label={`Stückzahl, ${bezeichnung}`}
+            className="flex items-center gap-1 rounded-klein border border-linie-stark"
+          >
+            <Zaehlknopf
+              beschriftung={`Eins weniger, ${bezeichnung}`}
+              zeichen="−"
+              aus={eintrag.stueckzahl <= 1}
+              beiKlick={() => setzeStueckzahl(eintrag, eintrag.stueckzahl - 1)}
+            />
+            <span
+              data-testid={`stueckzahl-${eintrag.id}`}
+              aria-live="polite"
+              aria-atomic="true"
+              className="zahlen min-w-8 text-center text-base tabular-nums"
+            >
+              {eintrag.stueckzahl}
+              <span className="sr-only"> Stück {bezeichnung}</span>
+            </span>
+            <Zaehlknopf
+              beschriftung={`Eins mehr, ${bezeichnung}`}
+              zeichen="+"
+              aus={eintrag.stueckzahl >= STUECKZAHL_OBERGRENZE}
+              beiKlick={() => setzeStueckzahl(eintrag, eintrag.stueckzahl + 1)}
+            />
+          </div>
 
-          Der Name steht in `aria-label` und nicht wie bei `ListenZeile` in
-          einem `sr-only`-Feld: Dort trägt die Zeile den Namen nur einmal, hier
-          steht er schon sichtbar darüber, und ein zweites Textfeld mit
-          demselben Wort machte aus jeder Ware zwei Textknoten. Weil die
-          Beschriftung mit dem sichtbaren Wort beginnt, greift Sprachsteuerung
-          („Entfernen anklicken") weiterhin.
-        */}
-        <Schaltflaeche
-          variante="neben"
-          groesse="dicht"
-          aria-label={`Entfernen, ${bezeichnung}`}
-          className="shrink-0"
-          onClick={() => entferne(eintrag)}
-        >
-          Entfernen
-        </Schaltflaeche>
+          {/*
+            Mehrere Zeilen tragen denselben Knopf. Ohne den Namen der Ware hieße
+            jeder von ihnen bloß „Entfernen" — in einer vorgelesenen Liste von
+            Schaltflächen wäre keiner vom anderen zu unterscheiden.
+
+            Der Name steht in `aria-label` und nicht wie bei `ListenZeile` in
+            einem `sr-only`-Feld: Dort trägt die Zeile den Namen nur einmal, hier
+            steht er schon sichtbar darüber, und ein zweites Textfeld mit
+            demselben Wort machte aus jeder Ware zwei Textknoten. Weil die
+            Beschriftung mit dem sichtbaren Wort beginnt, greift Sprachsteuerung
+            („Entfernen anklicken") weiterhin.
+          */}
+          <Schaltflaeche
+            variante="neben"
+            groesse="dicht"
+            aria-label={`Entfernen, ${bezeichnung}`}
+            className="shrink-0"
+            onClick={() => entferne(eintrag)}
+          >
+            Entfernen
+          </Schaltflaeche>
+        </div>
       </div>
+
+      {offen ? (
+        <AbhakFormular
+          artikelId={eintrag.id}
+          listId={listId}
+          name={bezeichnung}
+          marke={eintrag.produkt?.marke ?? null}
+          /*
+            `null` heißt „Freitext, keine Gebindegröße bekannt" — das Formular
+            fragt sie dann ab. Beim Katalogartikel steht sie exakt so da, wie
+            `findeProdukt` sie wiedererkennt; sie neu abzutippen legte beim
+            kleinsten Unterschied ein zweites Produkt an.
+          */
+          menge={
+            eintrag.produkt
+              ? formatierePackung(eintrag.produkt.menge, eintrag.produkt.einheit)
+              : null
+          }
+          empfohleneKette={empfohleneKette}
+          ketten={ketten}
+          aktion={erfassePreis}
+          onAbgeschlossen={schliesseAbhaken}
+          onAbbrechen={schliesseAbhaken}
+        />
+      ) : null}
     </li>
+  );
+}
+
+/**
+ * Das leere Kästchen — die Geste dieses Bildschirms.
+ *
+ * Es ist **leer**, und das ist der ganze Punkt: Im Browser stand hier zuerst
+ * ein Häkchen als Symbol, und damit sah jede noch offene Zeile abgehakt aus.
+ * Ein Kästchen mit Haken heißt „erledigt", ein Kästchen ohne heißt „noch
+ * nicht" — an dieser einen Unterscheidung hängt die Lesbarkeit der ganzen
+ * Liste. Offen und erledigt tragen deshalb dieselbe Form und unterscheiden
+ * sich allein an Füllung und Haken.
+ *
+ * Der Rand ist zwei Pixel stark: Ein Haarstrich um 24 px verschwindet auf
+ * einem hellen Papier neben einer 17-px-Zeile.
+ */
+function Kaestchen({ offen }: { offen: boolean }) {
+  return (
+    <span
+      className={
+        "flex size-6 items-center justify-center rounded-klein border-2 " +
+        "transition-colors duration-150 ease-ruhig " +
+        (offen ? "border-marke bg-flaeche" : "border-linie-stark bg-hintergrund")
+      }
+    />
+  );
+}
+
+/**
+ * Was schon im Wagen liegt.
+ *
+ * Grün, und das ist eine der zwei Stellen, an denen die Farbregel dieser App
+ * es ausdrücklich erlaubt: Ein Häkchen ist Bestätigung, keine Kettenfarbe —
+ * das liest niemand als Spar. Kein Knopf, weil es nichts zurückzunehmen gibt:
+ * Der Haken hält fest, dass ein Preis erfasst wurde, und das ist geschehen.
+ * Wer die Zeile doch nicht will, entfernt sie.
+ */
+function Erledigt() {
+  return (
+    <span aria-hidden="true" className="flex h-11 w-11 shrink-0 items-center justify-center">
+      <span className="flex size-6 items-center justify-center rounded-klein border-2 border-erfolg bg-erfolg text-auf-erfolg">
+        <Haken />
+      </span>
+    </span>
+  );
+}
+
+function Haken() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      className="size-4 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 8.5 6.5 12 13 4.5" />
+    </svg>
   );
 }
 

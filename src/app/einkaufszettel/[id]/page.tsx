@@ -3,26 +3,32 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { holeArtikel, holeListe, type Liste } from "@/lib/einkaufszettel";
+import { holeKetten } from "@/lib/katalog";
+import { berechneOptimierung } from "@/lib/optimierer";
 import { requireUser } from "@/lib/sitzung";
 import {
   artikelHinzufuegenAktion,
   entferneArtikelAktion,
+  erfassePreisAktion,
   stueckzahlAktion,
   sucheProdukteAktion,
 } from "./aktionen";
+import { OptimiererAnzeige } from "./optimierer-anzeige";
 import { ZettelDetail } from "./zettel-detail";
 
 /**
- * Ein Zettel und was daraufsteht.
+ * Ein Zettel, die Antwort darauf, wo er am wenigsten kostet, und was
+ * daraufsteht — in dieser Reihenfolge.
  *
- * Der Optimierer — welche Kette den ganzen Zettel am billigsten macht — ist
- * bewusst noch nicht hier: Er gehört zu Task 8 und setzt voraus, dass etwas
- * daraufsteht. Diese Seite hat genau eine Aufgabe, nämlich das Draufschreiben,
- * und zeigt deshalb oben ein Feld und darunter die Liste.
+ * Der Optimierer steht **über** der Liste, obwohl das Eingabefeld dann
+ * weiter unten sitzt. Der Grund ist der Ort: Wer diesen Bildschirm im Geschäft
+ * öffnet, hat den Zettel längst geschrieben und will die Antwort. Wer ihn
+ * zuhause öffnet, um etwas draufzuschreiben, scrollt einmal — und sieht dabei,
+ * dass sich die Summe geändert hat.
  *
  * Zwischenspeicher: Die Seite wird bei jedem Aufruf neu erzeugt, weil
- * `requireUser` über `headers()` liest. Das `revalidatePath` der drei Aktionen
- * hat damit nichts zu verwerfen — es wird trotzdem gebraucht, weil es den
+ * `requireUser` über `headers()` liest. Das `revalidatePath` der Aktionen hat
+ * damit nichts zu verwerfen — es wird trotzdem gebraucht, weil es den
  * laufenden Server-Durchlauf anstößt, aus dem `ZettelDetail` seine Liste
  * bekommt. Begründung in `aktionen.ts`.
  */
@@ -57,6 +63,20 @@ export default async function ListendetailSeite({
 
   const liste = await ladeListe((await params).id);
   const artikel = await holeArtikel(db, liste.id);
+  const ketten = await holeKetten(db);
+  const optimierung = await berechneOptimierung(db, liste.id);
+
+  /*
+   * Artikelkennung → Kettenkürzel, direkt aus der optimalen Aufteilung: Sie
+   * hält je Kette die Artikel, die dort am günstigsten wären. Genau das ist
+   * die Vorauswahl, die das Abhak-Formular braucht — die Zeile bekommt eine
+   * Zeichenkette statt der ganzen Rechnung.
+   */
+  const empfohleneKetten = Object.fromEntries(
+    optimierung.aufteilung.flatMap((zeile) =>
+      zeile.artikel.map((eintrag) => [eintrag.artikel.id, zeile.kette.kuerzel]),
+    ),
+  );
 
   return (
     <main
@@ -85,14 +105,27 @@ export default async function ListendetailSeite({
         </h1>
       </div>
 
-      <div data-auftritt className="animate-auftritt [animation-delay:80ms]">
+      {/*
+        Kein Optimierer über einem leeren Zettel: Er hätte nichts zu vergleichen
+        und stünde der einen Sache im Weg, die hier dann zu tun ist.
+      */}
+      {artikel.length > 0 ? (
+        <div data-auftritt className="animate-auftritt [animation-delay:80ms]">
+          <OptimiererAnzeige optimierung={optimierung} />
+        </div>
+      ) : null}
+
+      <div data-auftritt className="animate-auftritt [animation-delay:140ms]">
         <ZettelDetail
           listId={liste.id}
           artikel={artikel}
+          ketten={ketten}
+          empfohleneKetten={empfohleneKetten}
           artikelHinzufuegen={artikelHinzufuegenAktion}
           stueckzahlAendern={stueckzahlAktion}
           entferneArtikel={entferneArtikelAktion}
           sucheProdukte={sucheProdukteAktion}
+          erfassePreis={erfassePreisAktion}
         />
       </div>
     </main>
