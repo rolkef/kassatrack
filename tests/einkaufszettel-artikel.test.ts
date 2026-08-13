@@ -88,7 +88,8 @@ describe("aendereStueckzahl / entferneArtikel / hakeItemAb", () => {
     const liste = await erzeugeListe(umgebung.db, "Test");
     const artikel = await fuegeFreitextArtikelHinzu(umgebung.db, liste.id, "Zwiebeln");
 
-    await faengtFehler(() => aendereStueckzahl(umgebung.db, artikel.id, 0));
+    const fehler = await faengtFehler(() => aendereStueckzahl(umgebung.db, artikel.id, 0));
+    expect(fehler).toBeDefined();
   });
 
   it("entfernt einen Artikel", async () => {
