@@ -159,3 +159,34 @@ CSP-Verstöße, keine Hydrierungswarnungen, keine Fehler.
 | `zettel-handy-rueckfrage.png` | Die Rückfrage vor dem Löschen, an Ort und Stelle statt in einem Dialog. Erst dieser zweite Schritt ist rot, und der Satz darüber sagt, dass alles auf dem Zettel mitgeht und nichts zurückzuholen ist. |
 | `zettel-handy-abgewiesen.png` | Anlegen ohne Namen: Meldung unter dem Feld, roter Feldrand, Eingabe bleibt stehen. |
 | `zettel-desktop.png` | 1280×900. Feld und Schaltfläche stehen nebeneinander und fluchten an der Oberkante; im Bild trägt „Löschen" den Fokusring, weil die Rückfrage gerade mit Escape abgebrochen wurde und der Fokus an ihren Auslöser zurückgesprungen ist. |
+
+## Einkaufszettel — Listendetail (Plan 4, Task 7)
+
+Gegen den Produktionsbau (`bun run build && bun run start`) bei 390×844 und
+1280×900, jeweils bei doppelter Pixeldichte. Die Browserkonsole war über den
+ganzen Durchgang leer: keine CSP-Verstöße, keine Hydrierungswarnungen, keine
+Fehler.
+
+**Diese Aufnahmen entstanden nicht an einem echten Zettel, sondern über eine
+Wegwerf-Route mit erfundenen Daten** (`/pruef-zettel`, nach der Prüfung wieder
+gelöscht). Sie zeichnete dieselbe `ZettelDetail`-Komponente unter demselben
+Produktionsbündel und derselben CSP, nur ohne Sitzung und mit Attrappen
+anstelle der vier Server-Aktionen. Grund: In dieser Umgebung ließ sich keine
+echte Anmeldung herstellen — die Google-Zugangsdaten in `.env` sind
+Platzhalter, ein Passwort-Pfad ist in `src/lib/auth.ts` bewusst abgeschaltet,
+und eine von Hand angelegte Sitzung wie in Task 6 war der Sitzung dieses
+Durchgangs von der Rechteverwaltung verwehrt. Belegt ist damit alles, was am
+Bündel und an der Oberfläche hängt (Gestalt, CSP, Tastaturbedienung,
+zugängliche Namen, das Zusammenspiel der Aktionen über einen echten
+Server-Aktionsaufruf); **nicht** belegt ist das Zusammenspiel mit echten
+Zetteldaten aus der Datenbank. Der Rückweg „Alle Zettel" zeigt in den
+Aufnahmen auf die echte Übersicht, der Titel „Wocheneinkauf" ist erfunden.
+
+| Datei | Was zu sehen ist |
+|---|---|
+| `zettel-detail-handy-liste.png` | Zwei Artikel bei 390×844: ein Katalogartikel mit Marke und Gebindegröße, darunter ein Freitext mit „kein Preisvergleich". Zähler und „Entfernen" stehen nebeneinander in einer Zeile, ohne umzubrechen. |
+| `zettel-detail-handy-treffer.png` | Katalogtreffer zu „Butter" beim Tippen. Die Trefferliste steht zwischen Feld und Zettel; „Als Freitext hinzufügen" bleibt als Ausweg darunter stehen, in der zurückhaltenden Variante, solange es Treffer gibt. |
+| `zettel-detail-handy-ohne-treffer.png` | Nichts im Katalog zu „Topfenstrudel". Sand statt Rot, und die Meldung zeigt auf den Freitext, statt in einer Sackgasse zu enden — erst hier wird „Als Freitext hinzufügen" zur betonten Wahl. |
+| `zettel-detail-handy-fokus.png` | Sichtbarer Fokusring auf „Entfernen" der ersten Zeile. Ihr zugänglicher Name lautet „Entfernen, Vollmilch 3,5 %"; sichtbar steht nur „Entfernen", weil der Warenname schon darüber steht. |
+| `zettel-detail-handy-leer.png` | Zettel ohne einen einzigen Artikel. Der leere Zustand sagt, was hier hingehört und wozu es gut ist; die Zählung daneben steht auf 0. |
+| `zettel-detail-desktop.png` | 1280×900. Name links, Zähler und „Entfernen" rechts in einer Zeile; im Bild trägt „Entfernen" der ersten Zeile den Fokusring. |
