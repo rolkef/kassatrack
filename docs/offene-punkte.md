@@ -51,6 +51,193 @@ präsent war.
 - **Berührungsgrößen sind nirgends automatisiert geprüft.** `min-h-14` und `min-h-12` stehen im Quelltext und auf den Aufnahmen unter `docs/bilder/`, aber kein Test hält sie fest; ein `min-h-8` fiele erst jemandem im Geschäft auf. Gilt für die ganze App, nicht erst seit Plan 2.
 - **Die Startseite hat kein aktives Ziel in der Navigation.** Folgerichtig — sie ist keiner der drei Bereiche, und die Wortmarke trägt dort `aria-current="page"`. Beim ersten Blick sieht es trotzdem aus, als sei nichts ausgewählt. Falls das stört, ist die Startseite ein viertes Ziel.
 
+## Aus Plan 3 (Barcode-Scan & Produktbilder)
+
+Acht Tasks, jeder mit eigenem Review, dazu Task 9 als Abschluss. Was hier
+steht, ist der Abgleich gegen das vollständige Protokoll dieser Reviews
+(`.superpowers/sdd/2026-08-09-plan3-barcode-produktbilder/progress.md`) —
+nicht nur gegen das, was zuletzt noch präsent war.
+
+### Erledigt
+
+- **Task 1:** Ein mkdtemp-Leck in den eigenen Test-Fixtures (Important, ein
+  Fehler im Brief selbst, nicht des Implementierers) ist behoben — das
+  Wurzelverzeichnis wird jetzt getrennt vom Arbeitspfad für die Aufräumung
+  festgehalten.
+- **Task 4:** Eine SSRF-Lücke (Important, aus automatisiertem
+  Sicherheits-Review) ist behoben — `ladeUndSpeichereBild` prüft jetzt
+  Host/Protokoll der von Open Food Facts gelieferten `bildUrl`, bevor
+  serverseitig abgerufen wird; empirisch gegen echtes Bun-`fetch`-Verhalten
+  unter `redirect:"manual"` verifiziert.
+- **Task 6:** Ein env-Mock-Leck (Important) ist behoben —
+  `mock.module("@/lib/env", …)` in `tests/produktbilder-route.test.ts`
+  überlebte ins nächste Testfile und lenkte dessen Schreibvorgänge in ein
+  bereits gelöschtes Verzeichnis um. Die erste Reparatur (`afterAll`-Reset)
+  wurde empirisch als wirkungslos verifiziert (`afterAll` in einer
+  describe-losen Datei feuert auf dieser Windows/Bun-1.3.14-Kombination
+  nicht zuverlässig vor der nächsten Datei); endgültig gelöst, indem
+  `mock.module` ganz entfernt und stattdessen ins echte
+  `env.PRODUKTBILDER_VERZEICHNIS` mit testlaufweit eindeutigem Schlüssel
+  geschrieben wird.
+- **Task 7:** Der Brief selbst nahm an, `videoRef.current` sei „spätestens
+  nach dem ersten Render" gesetzt, wenn `schleife()` direkt nach
+  `setZustand("scannt")` aufgerufen wird — falsch, React rendert nicht
+  synchron nach einem State-Setter neu. In einem echten Browser wäre die
+  Kameravorschau nie verkabelt worden. Vom Implementierer selbst vor dem
+  Review gefunden und mit `useEffect` behoben, abgesichert durch eine
+  Zusicherung, dass der Decoder sein erstes Argument tatsächlich vom
+  `<video>`-Element bekommt, nicht `null`.
+- **Task 7/8:** Die Kamera blieb an und ließ sich nicht stoppen, wenn die
+  Komponente während des `getUserMedia`-Berechtigungsdialogs aushängte (in
+  Task 7 gefunden, in Task 8 behoben — der Fix ging über den Vorschlag
+  hinaus: ein StrictMode-Mount/Unmount/Remount wird jetzt zurückgesetzt).
+
+### Warten
+
+- **Task 1:** Kein Test prüft `.gitignore` maschinell auf Korrektheit für
+  `/daten/` — von Hand nachgeprüft (`git ls-files` enthält nichts unter
+  `daten/`), aber nichts hält das programmatisch fest.
+- **Task 1:** `schreibeBild` schreibt nicht-atomar (`writeFile`), kein
+  dedizierter Test für einen Teil-Schreibvorgang — beim aktuellen
+  Nutzungsmuster (Einzelhaushalt, geringe Nebenläufigkeit, Bilder werden
+  einmalig geholt und zwischengespeichert) kein echtes Risiko.
+- **Task 4:** `tests/produktbilder.test.ts:172-193` (Exception-Test) liest
+  die Datenbank nach dem Wurf nicht erneut, anders als die zwei
+  Nachbartests im selben describe-Block. Aktuell folgenlos (der Wurf
+  passiert vor jedem Schreibversuch), würde aber einen künftigen Refactor
+  nicht auffangen, der `schreibeBild`/`db.update` vor die mögliche
+  Netzwerk-Exception verschöbe.
+- **Task 4:** Der Happy-Path-Test liest die erzeugte Bilddatei nicht selbst
+  erneut von der Platte, um die Bytes zu prüfen — verlässt sich auf
+  `schreibeBild`s eigene Bytegenauigkeits-Tests an anderer Stelle derselben
+  Datei. Vertretbare Abgrenzung, keine Lücke.
+- **Task 4:** Der Kommentar bei `produktbilder.ts:79-82` behauptet, Bun
+  liefere unter `redirect:"manual"` eine spec-korrekte
+  `opaqueredirect`-Antwort (Status 0) — empirisch liefert es tatsächlich
+  eine unverfolgte rohe 3xx-Antwort (Status 302, `type: "default"`). Die
+  Sicherheitseigenschaft (`.ok` bleibt `false`) gilt in beiden Fällen,
+  reine Dokumentations-Ungenauigkeit, ein Einzeiler bei nächster Berührung.
+- **Task 6:** `bestaetigeZuordnung`s Idempotenz-Vertrag steht nur in einem
+  Inline-Kommentar, nicht im äußeren Docstring der Funktion — wer nur den
+  Docstring liest (wie ein künftiger Implementierer es zuerst täte), sieht
+  die Zusicherung nicht.
+- **Task 6:** Zeigt `produktId` auf ein anderes Produkt als das, das
+  bereits mit der EAN verknüpft ist, liefert die Funktion stillschweigend
+  das bereits verknüpfte Produkt zurück — kein Fehler, kein Test, eine
+  Verhaltensänderung gegenüber dem ursprünglichen Brief-Design, vermutlich
+  beabsichtigt, aber undokumentiert.
+- **Task 6:** `loeseEanAuf`s „Anmeldung erforderlich"-Test hängt in seinem
+  Bestehen/Scheitern zufällig auch von echter Netzwerk-Erreichbarkeit zu
+  Open Food Facts ab, nicht rein vom Auth-Check.
+- **Task 8:** `echterDecoder()`/`istScanFaehig()` haben keinerlei
+  Testabdeckung — genau die Funktionen, deren Bruch sich nur auf echter
+  Hardware zeigen würde, und die Geräteverifikation steht noch aus (siehe
+  Checkliste unten).
+- **Task 8:** Ein zweiter Scan kann starten, während die Auflösung des
+  ersten noch läuft; die frühere Antwort kann bei der Auflösung die
+  spätere überschreiben (sichtbar, nicht still, aber es könnte das falsche
+  Produkt vorausgefüllt werden).
+- **Task 8:** `bestaetigeZuordnung`-Fehler und `loeseEanAuf`-Fehler teilen
+  sich einen Fehlerzustand mit einer Meldung, die für den
+  `bestaetigeZuordnung`-Fall falsch ist, und verwirft dabei unnötig die
+  bereits geladene Vorschlagsliste.
+- **Task 8:** `bestaetigeZuordnung`s catch-Pfad im Formular ist ungetestet
+  — ließe sich löschen, ohne dass ein Test rot würde.
+- **Task 8:** Der Hinweis auf veraltete Screenshots in
+  `docs/bilder/README.md` liegt rund 70 Zeilen von den Tabellenzeilen
+  entfernt, die er betrifft — wer nur die Tabelle liest, übersieht ihn
+  leicht.
+- **Task 8:** Die Betonung „bestehendes Produkt vor neuem"
+  (`variante="neben"` vs. `"haupt"` je nach `aehnliche.length`) ist nur auf
+  Reihenfolge getestet, nicht auf die visuelle Betonung selbst — eine
+  Regression zu immer-`"haupt"` bliebe grün.
+- **Plan-übergreifend:** Die echte Geräteverifikation (Android + Chrome
+  `BarcodeDetector`, echte Better-Auth-Sitzung, HTTPS/`localhost` für
+  `getUserMedia`, eine echte bekannte und eine echte unbekannte EAN gegen
+  Open Food Facts) steht noch aus — kein Subagent in dieser Umgebung kann
+  ein Android-Gerät oder eine interaktive Google-Anmeldung liefern. Siehe
+  Checkliste unten für die konkreten Schritte.
+
+### Bewusste Entscheidungen, keine Mängel
+
+- **Kein iOS-Safari-Fallback** (`zxing-wasm`) — Zielumfeld ist
+  Android/Chrome.
+- **Kein Nachtrage-Weg für Altbestand ohne EAN.**
+- **Kein Bild-Refresh**, einmal geladen bleibt ein Bild bestehen.
+- **Ein fehlgeschlagener Bild-Download wird nicht automatisch
+  wiederholt.**
+- **Task 5:** Der Pfad-Traversal-Schutz auf der Bilder-Route ist der
+  einzige und ausreichende Riegel — `lesePfadZuBild` selbst hat keinen
+  eigenen Schutz, das ist bewusst so (der Reviewer hat aktiv gegen
+  Newline-Injektion, Nullbyte, Unicode-Ziffern, Backslash, ein
+  nicht-verankertes Regex gefuzzt und keinen Bypass gefunden).
+- **Task 9, Step 1 (`compose.yaml`-Volume):** kein Änderungsbedarf. Das
+  Bildverzeichnis ist ein lokaler Ordner für die Entwicklung (Next läuft
+  dort direkt auf dem Host, nicht im Container); in Coolify wird es
+  stattdessen im `Dockerfile` verankert (siehe Abschnitt „Produktbilder —
+  persistentes Volume" in `docs/deployment-coolify.md`).
+
+### Geräteverifikation — noch ausständig, für den Betreiber
+
+Task 9 konnte die Browser-Verifikation auf einem echten Android-Gerät
+nicht durchführen — kein Android-Gerät, kein `BarcodeDetector` in
+Windows-Desktop-Chrome, und keine Möglichkeit, eine echte, authentifizierte
+Better-Auth-Sitzung herzustellen (direkte Schreibzugriffe auf die
+Benutzer-/Sitzungstabellen wurden von der Umgebungs-Berechtigung verweigert
+— das war auch schon bei Task 8 so und wurde dort bewusst nicht umgangen).
+Das ist der einzige Teil von Plan 3, der echten Kamerabetrieb belegt statt
+nur Verdrahtung und Oberfläche. Checkliste für den Projektbetreiber (mit
+echtem Android-Handy):
+
+1. **Sicherer Kontext.** `getUserMedia` verlangt `https://` oder
+   `localhost` — ein Aufruf über die reine LAN-IP (`http://192.168.…`)
+   fragt gar nicht erst nach der Kamera-Berechtigung. Entweder ein
+   selbstsigniertes Zertifikat lokal einrichten, einen Tunnel-Dienst (z. B.
+   `bunx localtunnel`) verwenden, oder direkt gegen eine testweise
+   erreichbare Coolify-Instanz mit echtem TLS prüfen.
+2. **Echte Anmeldung.** Über echtes Google-OAuth (Better Auth) anmelden,
+   damit `/erfassen` überhaupt erreichbar ist — kein Mock, keine
+   Testroute.
+3. **Produktionsbau starten** (`bun run build && bun run start`),
+   `/erfassen` auf dem Handy in Chrome öffnen.
+4. **Drei Scan-Fälle durchspielen:**
+   - Eine EAN, die bereits in `product_ean` verknüpft ist (nach dem ersten
+     erfolgreichen Durchlauf zwangsläufig gegeben) → sollte das Formular
+     direkt vorausfüllen.
+   - Eine EAN, die Open Food Facts kennt, aber noch nicht im eigenen
+     Katalog verknüpft ist → sollte den Fuzzy-Vorschlag zeigen.
+   - Eine erfundene EAN, die niemand kennt → sollte sauber auf die
+     manuelle Eingabe zurückfallen, unverändert.
+5. **Kamera-Berechtigung bewusst einmal verweigern** und prüfen, dass der
+   Hinweistext erscheint — kein Absturz, keine hängende Oberfläche.
+6. **Browser-Konsole prüfen** auf CSP-Verstöße oder andere Fehler während
+   des ganzen Durchlaufs.
+7. **Screenshots neu ziehen** — siehe `docs/bilder/README.md`, Abschnitt
+   „Strichcode-Scan im Erfassungsformular (Plan 3, Task 8)" für den
+   genauen, aktuellen Stand des Hinweises. Betrifft mindestens:
+   - Drei seit Task 8 veraltete Aufnahmen ganz ohne Scan-Schaltfläche:
+     `erfassen-handy-leer.png`, `erfassen-handy-fokus.png`,
+     `erfassen-desktop.png`.
+   - Neun Aufnahmen aus Task 8, die gegen eine nachgebildete
+     Kamera/nachgebildeten Decoder und eine provisorische, nicht
+     angemeldete Route entstanden (keine Navigationsleiste sichtbar):
+     `erfassen-handy-scan-bereit.png`, `erfassen-handy-scan-kamera.png`,
+     `erfassen-handy-scan-vorschlag.png`,
+     `erfassen-handy-scan-vorschlag-ohne-treffer.png`,
+     `erfassen-handy-scan-vorschlag-fokus.png`,
+     `erfassen-handy-scan-uebernommen.png`,
+     `erfassen-handy-scan-unbekannt.png`,
+     `erfassen-handy-scan-fehlgeschlagen.png`,
+     `erfassen-desktop-scan-vorschlag.png`.
+   - Vor jeder Neuaufnahme die alte Datei löschen, danach jede neue
+     Aufnahme öffnen und gegen ihren Dateinamen und die
+     Tabellenbeschreibung in `docs/bilder/README.md` prüfen — wie in jeder
+     bisherigen UI-Aufgabe dieses Projekts.
+8. Erst wenn alle sieben Punkte durchlaufen sind, gilt
+   Plan-3-Verifikationspunkt 6 („Ein echter Scan auf einem Android-Handy
+   mit Chrome funktioniert, Browser-verifiziert mit Screenshots") als
+   erledigt — nicht vorher, und nicht von einem Subagenten markierbar.
+
 ### Warten — Daten, Schema und Abfragen
 
 - **`offer.preis` heißt „preis", hält aber einen Grundpreis in € je Kilo, Liter oder Stück.** Der Schemakommentar und `schreibeAngebot` sagen das jetzt ausdrücklich, und ein Wächter weist wenigstens unsinnige Zahlen ab — aber der *Name* sagt es weiterhin nicht. Flugblätter und Ketten-Schnittstellen veröffentlichen Regalpreise; wer in Plan 3 einliest und den Kommentar überliest, trägt 1,49 € gegen einen Median in €/kg ein, und jede eingelesene Aktion sähe unschlagbar aus. Die Spalte auf `grundpreis` umzubenennen — wie in `price_observation` — bleibt der billige, dauerhafte Weg; er kostet eine Migration und war unmittelbar vor dem Zusammenführen das falsche Risiko.

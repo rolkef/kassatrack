@@ -53,6 +53,15 @@ RUN addgroup -g 1001 -S nodejs \
   && chown -R nextjs:nodejs /home/nextjs
 ENV HOME=/home/nextjs
 
+# Muss hier existieren und nextjs gehören, bevor Coolifys eingehängtes Volume
+# denselben Pfad überlagert: Ein Docker-Volume, das beim ersten Start noch
+# leer ist, übernimmt Inhalt und Besitzrechte dieses Verzeichnisses aus dem
+# Image — ohne diese Zeile bliebe der Mountpunkt root-eigen, und der
+# nicht-root-Prozess (`USER nextjs` unten) könnte weder das Verzeichnis noch
+# darunterliegende Bilder anlegen (siehe docs/deployment-coolify.md,
+# Abschnitt „Produktbilder — persistentes Volume").
+RUN mkdir -p /app/daten/produktbilder && chown -R nextjs:nodejs /app/daten/produktbilder
+
 # `public` zuerst aus dem Builder, nicht aus dem Repository: Erst dort liegt
 # das von Serwist erzeugte `public/sw.js` neben den eingecheckten Icons.
 COPY --from=builder /app/public ./public
