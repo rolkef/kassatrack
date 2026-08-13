@@ -1,9 +1,22 @@
 "use client";
 
-import { useActionState, useId, useRef, useState, type ReactNode } from "react";
+import { useActionState, useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Schaltflaeche } from "@/components/ui/schaltflaeche";
-import { formatiereGrundpreis, grundpreis, zerlegeMenge, zerlegePreis } from "@/lib/einheiten";
-import type { Kette } from "@/lib/katalog";
+import {
+  formatiereGrundpreis,
+  formatierePackung,
+  grundpreis,
+  zerlegeMenge,
+  zerlegePreis,
+} from "@/lib/einheiten";
+import type { Kette, Produkt } from "@/lib/katalog";
+import type { EanErgebnis, NeuesProdukt } from "./ean-zustand";
+import {
+  echterDecoder,
+  istScanFaehig,
+  StrichcodeScanner,
+  type Decoder,
+} from "./strichcode-scanner";
 import { benennePreisart, PREISARTEN, type ErfassungsAktion, type Ergebnis } from "./zustand";
 
 /**
@@ -27,6 +40,13 @@ import { benennePreisart, PREISARTEN, type ErfassungsAktion, type Ergebnis } fro
  * **Auswahl statt Klappliste.** Fünf Ketten und vier Preisarten als Felder, die
  * man antippt. Eine Klappliste kostet am Handy drei Gesten (öffnen, drehen,
  * bestätigen) statt einer und verbirgt zudem, was zur Wahl steht.
+ *
+ * **Der Scan füllt drei Felder, ersetzt aber keines.** Der Strichcode steht
+ * über dem Produktnamen und schreibt in dieselben Felder, die man sonst
+ * tippt — sichtbar, überschreibbar, jederzeit umgehbar. Kein Gerät, keine
+ * Berechtigung, keine Kennung im Netz: In allen drei Fällen bleibt das
+ * Formular genau das, was es in Plan 2 war. Dazu kommt das Produktbild — aber
+ * ausschließlich aus dem eigenen Zwischenspeicher, siehe `UebernommenesBild`.
  */
 
 /** Ein bereits gespeicherter Preis dieses Einkaufs. */
@@ -41,12 +61,54 @@ type Erfasst = {
   grundpreis: string;
 };
 
+type Vorschlag = Extract<EanErgebnis, { art: "vorschlag" }>;
+
+/**
+ * Was der letzte Scan ergeben hat. Ein Wert statt mehrerer Schalter, weil sich
+ * die Lagen gegenseitig ausschließen: Ein Vorschlag, der noch nachgeschlagen
+ * wird, oder ein Treffer neben einem Fehlschlag sind keine erreichbaren
+ * Zustände, und getrennte Schalter ließen sie zu.
+ *
+ * `laeuft` am Vorschlag hält fest, **welche** der angebotenen Zuordnungen
+ * gerade gespeichert wird — der Fortschrittsring gehört an die angetippte
+ * Zeile, nicht an alle.
+ */
+type ScanZustand =
+  | { art: "ruhig" }
+  | { art: "sucht" }
+  | { art: "uebernommen"; produkt: Produkt }
+  | (Vorschlag & { laeuft: string | null })
+  | { art: "unbekannt" }
+  | { art: "fehler" };
+
+/** Die Marke für „ein neues Produkt", dort wo sonst eine Produkt-Id steht. */
+const NEU = "neu";
+
 export function ErfassungsFormular({
   ketten,
   aktion,
+  loeseEanAuf,
+  bestaetigeZuordnung,
+  decoder,
+  kameraStarten,
 }: {
   ketten: Kette[];
   aktion: ErfassungsAktion;
+  loeseEanAuf: (ean: string) => Promise<EanErgebnis>;
+  bestaetigeZuordnung: (eingabe: {
+    ean: string;
+    produktId?: string;
+    neu?: NeuesProdukt;
+    bildUrl?: string | null;
+  }) => Promise<Produkt>;
+  /*
+   * Beide entstehen in Produktion im Browser und werden nirgends übergeben —
+   * sie stehen hier, damit Tests den Scan durchspielen können, ohne Kamera und
+   * `BarcodeDetector` global zu ersetzen. Dieselbe Begründung wie bei
+   * `StrichcodeScanner`: Ein globaler Ersatz gälte für den ganzen Testlauf.
+   */
+  decoder?: Decoder;
+  kameraStarten?: () => Promise<MediaStream>;
 }) {
   const [kette, setKette] = useState("");
   const [name, setName] = useState("");
@@ -75,6 +137,95 @@ export function ErfassungsFormular({
    * müssen und tat es nicht.
    */
   const [versuche, setVersuche] = useState(0);
+
+  const [scan, setScan] = useState<ScanZustand>({ art: "ruhig" });
+
+  /*
+   * Ob dieses Gerät scannen kann, steht erst im Browser fest — `BarcodeDetector`
+   * gibt es beim Serverrendern nicht. Ein `istScanFaehig()` mitten im Render
+   * antwortete am Server „nein" und im Browser „ja"; React beanstandete die
+   * Abweichung beim Hydrieren. Deshalb erst nach dem Einhängen prüfen — und
+   * genau einmal: Ein Decoder, der bei jedem Render neu entstünde, ließe die
+   * Leseschleife im Scanner bei jedem Tastendruck im Formular neu anlaufen.
+   */
+  const [scanner, setScanner] = useState<{ decoder?: Decoder } | null>(
+    decoder ? { decoder } : null,
+  );
+  useEffect(() => {
+    if (decoder) return;
+    setScanner({ decoder: istScanFaehig() ? echterDecoder() : undefined });
+  }, [decoder]);
+
+  const uebernimm = useCallback((produkt: Produkt) => {
+    setName(produkt.name);
+    setMarke(produkt.marke ?? "");
+    setMenge(formatierePackung(produkt.menge, produkt.einheit));
+  }, []);
+
+  /*
+   * Stabil gehalten, weil `StrichcodeScanner` daran seine Leseschleife hängt:
+   * Eine bei jedem Render neu erzeugte Funktion baute die Schleife mitten im
+   * Scannen ab und wieder auf.
+   */
+  const beiErkanntemCode = useCallback(
+    async (ean: string) => {
+      setScan({ art: "sucht" });
+      let ergebnis: EanErgebnis;
+      try {
+        ergebnis = await loeseEanAuf(ean);
+      } catch {
+        /*
+         * Kein hypothetischer Fall: `holeOffProdukt` reicht Netzwerkfehler
+         * ausdrücklich weiter, und gescannt wird im Supermarkt — dort, wo der
+         * Empfang schlecht ist.
+         */
+        setScan({ art: "fehler" });
+        return;
+      }
+      if (ergebnis.art === "bekannt") {
+        uebernimm(ergebnis.produkt);
+        setScan({ art: "uebernommen", produkt: ergebnis.produkt });
+      } else if (ergebnis.art === "vorschlag") {
+        setScan({ ...ergebnis, laeuft: null });
+      } else {
+        // „unbekannt": Die manuelle Eingabe bleibt, wie sie ist — nur der Satz
+        // darunter sagt, dass der Scan gelungen und trotzdem nichts zu holen
+        // war. Ohne ihn sähe ein erfolgreicher Scan aus wie ein kaputter.
+        setScan({ art: "unbekannt" });
+      }
+    },
+    [loeseEanAuf, uebernimm],
+  );
+
+  async function waehleVorschlag(produktId?: string) {
+    if (scan.art !== "vorschlag" || scan.laeuft !== null) return;
+    setScan({ ...scan, laeuft: produktId ?? NEU });
+
+    let produkt: Produkt;
+    try {
+      produkt = await bestaetigeZuordnung({
+        ean: scan.ean,
+        produktId,
+        neu: produktId
+          ? undefined
+          : {
+              name: scan.kandidat.name,
+              marke: scan.kandidat.marke,
+              menge: scan.kandidat.menge,
+              einheit: scan.kandidat.einheit,
+            },
+        // Auch beim bestehenden Produkt mitgeschickt: `bestaetigeZuordnung`
+        // lädt das Bild nur, wenn dort noch keines hängt.
+        bildUrl: scan.kandidat.bildUrl,
+      });
+    } catch {
+      setScan({ art: "fehler" });
+      return;
+    }
+
+    uebernimm(produkt);
+    setScan({ art: "uebernommen", produkt });
+  }
 
   const [ergebnis, absenden, laeuft] = useActionState<Ergebnis | undefined, FormData>(
     async (vorher, formular) => {
@@ -112,6 +263,9 @@ export function ErfassungsFormular({
       setGueltigBis("");
       setMengeBeruehrt(false);
       setPreisBeruehrt(false);
+      // Sonst stünde „Aus dem Strichcode übernommen: Butter" über einem
+      // Formular, in dem keine Butter mehr steht.
+      setScan({ art: "ruhig" });
 
       return antwort;
     },
@@ -162,6 +316,47 @@ export function ErfassungsFormular({
           Produkt ein zweites Mal.
         */}
         <div className="flex flex-col gap-4">
+          {/*
+            Der Scan steht über dem Produktnamen, weil er genau diese drei
+            Felder füllt — und nur sie. Die Kette darüber wählt man einmal je
+            Einkauf, Menge und Preis darunter stehen am Regal und nicht am
+            Etikett.
+          */}
+          <div className="flex flex-col gap-3">
+            {scan.art === "vorschlag" ? (
+              <Vorschlagsfeld
+                vorschlag={scan}
+                waehle={waehleVorschlag}
+                verwirf={() => setScan({ art: "ruhig" })}
+              />
+            ) : scanner ? (
+              <StrichcodeScanner
+                onErkannt={beiErkanntemCode}
+                decoder={scanner.decoder}
+                kameraStarten={kameraStarten}
+              />
+            ) : null}
+
+            <div className="flex items-center gap-3">
+              <UebernommenesBild scan={scan} />
+
+              {/*
+                Bewusst `aria-live` statt `role="status"`: Auf diesem Bildschirm
+                gibt es genau eine stehende Statusfläche, und das ist der
+                Grundpreis. Was hier steht, ist eine vorübergehende Rückmeldung
+                zum letzten Scan. Angesagt wird sie trotzdem — `role="status"`
+                ist nichts anderes als diese beiden Attribute.
+
+                `flex-1`, damit die Sand-Fläche der Fehl- und Unbekannt-Meldung
+                weiterhin über die volle Breite läuft: Ohne sie schrumpfte sie
+                in der Reihe auf ihre Textbreite zusammen.
+              */}
+              <div aria-live="polite" aria-atomic="true" className="min-w-0 flex-1">
+                <ScanMeldung scan={scan} />
+              </div>
+            </div>
+          </div>
+
           <Feld
             etikett="Produkt"
             name="name"
@@ -286,6 +481,208 @@ export function ErfassungsFormular({
       {erfasst.length > 0 ? <ErfasstListe eintraege={erfasst} /> : null}
     </div>
   );
+}
+
+/**
+ * Was Open Food Facts zum gescannten Strichcode weiß — und die Frage, die
+ * davor steht: Gibt es dieses Produkt in KassaTrack schon?
+ *
+ * Die Reihenfolge ist die eigentliche Entscheidung. Die bestehenden Produkte
+ * stehen **oben** und tragen ihre Gebindegröße, „Neues Produkt anlegen" steht
+ * darunter und ist nur dann die betonte Wahl, wenn es gar nichts zu treffen
+ * gibt. Andersherum — anlegen als große Hauptschaltfläche, die Treffer als
+ * blasse Nebensache — wäre die Zuordnung eine Fleißaufgabe und der Katalog
+ * hätte nach zwei Einkäufen drei Sorten Butter. Genau das soll die
+ * Ähnlichkeitssuche verhindern; die Gestaltung darf sie nicht wieder
+ * aufheben.
+ *
+ * Kein Dialog, keine eigene Seite: Der Vorschlag tritt an die Stelle der
+ * Scan-Schaltfläche, also dorthin, wo eben noch die Kamera war, und liegt
+ * unmittelbar über den Feldern, die er füllen wird.
+ */
+function Vorschlagsfeld({
+  vorschlag,
+  waehle,
+  verwirf,
+}: {
+  vorschlag: Vorschlag & { laeuft: string | null };
+  waehle: (produktId?: string) => void;
+  verwirf: () => void;
+}) {
+  const titelId = useId();
+  const { kandidat, aehnliche, ean, laeuft } = vorschlag;
+  const beschaeftigt = laeuft !== null;
+
+  return (
+    <div
+      data-auftritt
+      role="group"
+      aria-labelledby={titelId}
+      className="flex animate-auftritt flex-col gap-5 rounded-block bg-flaeche px-5 py-4"
+    >
+      <div className="flex flex-col gap-1">
+        <Eyebrow id={titelId}>Vorschlag</Eyebrow>
+        <p className="text-[1.0625rem] leading-snug font-medium">{kandidat.name}</p>
+        {/*
+          Die Gebindegröße läuft hier bewusst **ohne** `zahlen` mit: Die
+          Ziffernschrift ist für Spalten gedacht, in denen Zahlen untereinander
+          stehen. Mitten in einer Zeile fällt vor allem ihr breites Leerzeichen
+          auf — „250  g" statt „250 g". Der Strichcode darunter bekommt sie
+          sehr wohl: dreizehn Ziffern am Stück liest man mit gleich breiten
+          Zeichen deutlich leichter.
+        */}
+        <p className="text-[0.9375rem] text-gedaempft">
+          {kandidat.marke ? `${kandidat.marke} · ` : null}
+          {formatierePackung(kandidat.menge, kandidat.einheit)}
+        </p>
+        <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-gedaempft">
+          Von Open Food Facts zum Strichcode <span className="zahlen">{ean}</span>. Nach der
+          Zuordnung füllt derselbe Strichcode die Felder beim nächsten Mal von selbst.
+        </p>
+      </div>
+
+      {aehnliche.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-[0.8125rem] font-medium">
+            In KassaTrack steht schon Ähnliches — ist es dasselbe Produkt?
+          </p>
+          {aehnliche.map((produkt) => (
+            <Schaltflaeche
+              key={produkt.id}
+              variante="neben"
+              className="justify-start px-4 text-left"
+              laedt={laeuft === produkt.id}
+              disabled={beschaeftigt}
+              onClick={() => waehle(produkt.id)}
+            >
+              <span className="flex min-w-0 flex-col items-start gap-0.5">
+                <span className="text-[0.9375rem] leading-snug font-medium">
+                  {/*
+                    Sichtbar steht auf jeder Zeile nur das Produkt — „Ist
+                    dasselbe wie …" vor jedem Eintrag wäre dreimal derselbe
+                    Satz. Für Hilfstechnik, die die Zeile ohne die Frage
+                    darüber hört, steht er trotzdem da.
+                  */}
+                  <span className="sr-only">Ist dasselbe wie </span>
+                  {produkt.name}{" "}
+                  <span className="font-normal text-gedaempft">
+                    {formatierePackung(produkt.menge, produkt.einheit)}
+                  </span>
+                </span>
+                {produkt.marke ? (
+                  <span className="text-[0.8125rem] font-normal text-gedaempft">
+                    {produkt.marke}
+                  </span>
+                ) : null}
+              </span>
+            </Schaltflaeche>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-2">
+        <Schaltflaeche
+          variante={aehnliche.length > 0 ? "neben" : "haupt"}
+          laedt={laeuft === NEU}
+          disabled={beschaeftigt}
+          onClick={() => waehle(undefined)}
+        >
+          Neues Produkt anlegen
+        </Schaltflaeche>
+
+        {/*
+          Ohne diesen Ausweg wäre der Vorschlag eine Sackgasse: Wer einen
+          fremden Strichcode erwischt hat, müsste ein falsches Produkt anlegen,
+          um das Formular zurückzubekommen.
+        */}
+        <button
+          type="button"
+          onClick={verwirf}
+          disabled={beschaeftigt}
+          className={
+            "min-h-11 self-start text-[0.8125rem] text-gedaempft underline underline-offset-4 " +
+            "transition-colors duration-150 ease-ruhig hover:text-vordergrund " +
+            "disabled:cursor-not-allowed disabled:opacity-55"
+          }
+        >
+          Passt nicht — von Hand eintragen
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Das zwischengespeicherte Produktbild — oder gar nichts.
+ *
+ * Die Quelle ist ausnahmslos die eigene Route `/bilder/produkte/…`, nie die
+ * `bildUrl`, die der Open-Food-Facts-Vorschlag mitbringt. Genau dafür gibt es
+ * `ladeUndSpeichereBild`: Der Browser soll nie selbst bei Open Food Facts
+ * anklopfen, sonst erführe ein Dritter jeden einzelnen Scan. Deshalb erscheint
+ * das Bild erst, wenn ein aufgelöstes `Produkt` mit `bildSchluessel` vorliegt —
+ * bei einer bekannten EAN sofort, beim Vorschlag erst nach der bestätigten
+ * Zuordnung, die das Bild serverseitig holt. Im Vorschlag selbst steht es
+ * bewusst **nicht**: Dort gibt es nur die fremde Adresse.
+ *
+ * Klein und neben der Meldung, nicht groß über dem Formular: Es bestätigt, dass
+ * der Scan das richtige Produkt getroffen hat — mehr soll es nicht. Wer vor dem
+ * Regal steht, hat das Original in der Hand.
+ *
+ * Ein schlichtes `<img>` statt `next/image`: Die Datei liegt bereits auf dem
+ * eigenen Volume, wird von der eigenen Route mit `immutable` ausgeliefert und
+ * ist 56 px groß. Ein Optimierer davor holte sich nur eine zweite Kopie
+ * derselben Bytes.
+ */
+function UebernommenesBild({ scan }: { scan: ScanZustand }) {
+  if (scan.art !== "uebernommen" || !scan.produkt.bildSchluessel) return null;
+
+  return (
+    <img
+      data-auftritt
+      src={`/bilder/produkte/${scan.produkt.bildSchluessel}`}
+      alt={scan.produkt.name}
+      className="size-14 shrink-0 animate-auftritt rounded-klein bg-flaeche object-contain"
+    />
+  );
+}
+
+/**
+ * Ein Satz zum letzten Scan, oder gar nichts.
+ *
+ * Zwei Tonlagen: Was gelungen ist, steht klein und grau — es bestätigt nur,
+ * was die Felder darunter ohnehin zeigen. Was nicht zu holen war, steht in
+ * Sand. Nicht in Rot: Ein Strichcode, den niemand kennt, und ein Netz, das
+ * gerade nicht trägt, sind keine Fehler, die jemand gemacht hat. In beiden
+ * Fällen steht deshalb auch dabei, wie es weitergeht.
+ */
+function ScanMeldung({ scan }: { scan: ScanZustand }) {
+  if (scan.art === "unbekannt" || scan.art === "fehler") {
+    return (
+      <p className="rounded-block bg-hinweis px-4 py-3.5 text-[0.9375rem] leading-relaxed text-auf-hinweis">
+        {scan.art === "unbekannt"
+          ? "Diesen Strichcode kennt weder KassaTrack noch Open Food Facts. Trag Produkt, Marke und Menge von Hand ein."
+          : "Der Strichcode ließ sich nicht nachschlagen. Trag Produkt, Marke und Menge von Hand ein — oder scann noch einmal."}
+      </p>
+    );
+  }
+
+  const satz =
+    scan.art === "sucht"
+      ? "Strichcode gelesen. KassaTrack schlägt ihn gerade nach."
+      : scan.art === "vorschlag" && scan.laeuft !== null
+        ? "Die Zuordnung wird gespeichert."
+        : scan.art === "uebernommen"
+          ? `Aus dem Strichcode übernommen: ${beschreibe(scan.produkt)}.`
+          : null;
+
+  return satz ? <p className="text-[0.8125rem] leading-snug text-gedaempft">{satz}</p> : null;
+}
+
+/** „Butter, Kärntnermilch, 250 g" — ohne leere Glieder. */
+function beschreibe(produkt: Produkt): string {
+  return [produkt.name, produkt.marke, formatierePackung(produkt.menge, produkt.einheit)]
+    .filter((teil) => teil !== null && teil !== "")
+    .join(", ");
 }
 
 /**
@@ -562,9 +959,9 @@ function Feld({
   );
 }
 
-function Eyebrow({ children }: { children: ReactNode }) {
+function Eyebrow({ children, id }: { children: ReactNode; id?: string }) {
   return (
-    <p className="text-[0.75rem] font-semibold tracking-[0.1em] text-gedaempft uppercase">
+    <p id={id} className="text-[0.75rem] font-semibold tracking-[0.1em] text-gedaempft uppercase">
       {children}
     </p>
   );

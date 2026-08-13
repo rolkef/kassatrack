@@ -224,7 +224,36 @@ sich die Anwendung nicht mehr wirksam selbst.
 
 Coolify → Postgres-Service → Backups aktivieren, Ziel S3, täglich.
 
-## 10. Live verifizieren
+## 10. Produktbilder — persistentes Volume
+
+Plan 3 lädt Produktbilder von Open Food Facts herunter und speichert sie
+im Verzeichnis, das `PRODUKTBILDER_VERZEICHNIS` benennt. Ohne ein
+persistentes Volume an dieser Stelle gehen alle geladenen Bilder bei jedem
+Neu-Deployment verloren — sie würden beim nächsten Scan derselben Produkte
+lediglich erneut heruntergeladen, kein Datenverlust im Sinne der
+Preishistorie, aber unnötiger Open-Food-Facts-Traffic.
+
+1. In Coolify: Anwendung → Storages → „Add" → Pfad im Container z. B.
+   `/app/daten/produktbilder`, ein eigenes Volume.
+2. `PRODUKTBILDER_VERZEICHNIS=/app/daten/produktbilder` als
+   Environment-Variable setzen (siehe Abschnitt 3).
+
+**Besitzrechte, falls Bilder nicht geschrieben werden können.** Das
+`Dockerfile` legt `/app/daten/produktbilder` im Image an und übergibt es
+`nextjs` (dem Prozess-Benutzer, `USER nextjs`, uid 1001) — das reicht, damit
+ein beim ersten Start noch leeres Docker-Volume Inhalt *und* Besitzrechte
+dieses Pfads aus dem Image übernimmt. Legt Coolify das Volume stattdessen
+als reines Verzeichnis auf dem Host an (Bind-Mount statt benanntes Volume —
+in der Storages-Ansicht sichtbar) oder existiert es aus einem früheren
+Versuch bereits root-eigen, gilt diese Übernahme nicht, und Schreibversuche
+scheitern mit `EACCES` (sichtbar in `docker logs` beim ersten Bildabruf).
+Abhilfe im Container-Terminal:
+
+```bash
+chown -R 1001:1001 /app/daten/produktbilder
+```
+
+## 11. Live verifizieren
 
 Nach dem Deployment auf dem **Handy** durchspielen:
 
@@ -237,7 +266,7 @@ Nach dem Deployment auf dem **Handy** durchspielen:
 5. „Zum Startbildschirm hinzufügen" → App startet ohne Browserleiste
 6. Lighthouse (Mobil) laufen lassen → Performance ≥ 90, PWA installierbar
 
-## 11. Fehlerbehebung
+## 12. Fehlerbehebung
 
 **`docker build` schlägt mit `UNABLE_TO_VERIFY_LEAF_SIGNATURE` (oder
 „unable to verify the first certificate") fehl — nur relevant bei einem

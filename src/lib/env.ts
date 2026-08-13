@@ -6,6 +6,7 @@ const schema = z.object({
   BETTER_AUTH_URL: z.url(),
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
+  PRODUKTBILDER_VERZEICHNIS: z.string().min(1).default("./daten/produktbilder"),
 });
 
 export type Env = z.infer<typeof schema>;

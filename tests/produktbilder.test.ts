@@ -1,0 +1,210 @@
+import { afterAll, afterEach, describe, expect, it, mock } from "bun:test";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { env } from "@/lib/env";
+import { legeProduktAn, holeProdukt } from "@/lib/katalog";
+import {
+  erzeugeBildSchluessel,
+  ladeUndSpeichereBild,
+  lesePfadZuBild,
+  schreibeBild,
+} from "@/lib/produktbilder";
+import { starteTestDatenbank, type TestDatenbank } from "./helfer/db";
+
+const umgebung: TestDatenbank = await starteTestDatenbank();
+await migrate(umgebung.db, { migrationsFolder: "./drizzle" });
+
+afterAll(() => umgebung.stop());
+
+let wurzel: string;
+let verzeichnis: string;
+
+afterEach(async () => {
+  if (wurzel) await rm(wurzel, { recursive: true, force: true });
+});
+
+describe("erzeugeBildSchluessel", () => {
+  it("liefert einen dateisystemsicheren Schlüssel aus der EAN", () => {
+    expect(erzeugeBildSchluessel("9001234567892")).toBe("9001234567892.jpg");
+  });
+
+  it("weist eine EAN mit Pfadtrennzeichen ab", () => {
+    expect(() => erzeugeBildSchluessel("../../etc/passwd")).toThrow();
+  });
+});
+
+describe("schreibeBild / lesePfadZuBild", () => {
+  it("schreibt die Bytes unverändert und liefert denselben Pfad beim Lesen", async () => {
+    wurzel = await mkdtemp(join(tmpdir(), "produktbilder-"));
+    verzeichnis = wurzel;
+    const schluessel = erzeugeBildSchluessel("9001234567892");
+    const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
+
+    await schreibeBild(verzeichnis, schluessel, bytes);
+
+    const pfad = lesePfadZuBild(verzeichnis, schluessel);
+    const gelesen = await readFile(pfad);
+    expect(gelesen).toEqual(bytes);
+  });
+
+  it("legt das Zielverzeichnis an, falls es noch nicht existiert", async () => {
+    wurzel = await mkdtemp(join(tmpdir(), "produktbilder-"));
+    verzeichnis = join(wurzel, "tiefer", "verschachtelt");
+    const schluessel = erzeugeBildSchluessel("9001234567892");
+
+    await schreibeBild(verzeichnis, schluessel, Buffer.from([1, 2, 3]));
+
+    const gelesen = await readFile(lesePfadZuBild(verzeichnis, schluessel));
+    expect(gelesen).toEqual(Buffer.from([1, 2, 3]));
+  });
+});
+
+function fakeBildAbruf(bytes: Uint8Array, ok = true) {
+  return mock(
+    async () => new Response((ok ? bytes : null) as BodyInit | null, { status: ok ? 200 : 404 }),
+  ) as unknown as typeof fetch;
+}
+
+/*
+ * `ladeUndSpeichereBild` nimmt kein Verzeichnis entgegen, sondern schreibt in
+ * das echte `env.PRODUKTBILDER_VERZEICHNIS` — die mkdtemp-Wurzel oben hilft
+ * hier also nicht. Die Isolation liegt deshalb, wie in
+ * `tests/produktbilder-route.test.ts` begründet, an testlaufweit eindeutigen
+ * Schlüsseln; das Aufräumen entfernt genau diese und nichts sonst.
+ *
+ * Aufgeführt sind alle EANs dieses Blocks, nicht nur die des Happy Path: Ob
+ * eine Abweisung heute vor dem Schreiben zurückkehrt, ist eine Eigenschaft des
+ * geprüften Codes und keine, auf die das Aufräumen sich stützen sollte.
+ */
+const GESCHRIEBENE_EANS = [
+  "9001234567892",
+  "9007654321098",
+  "9001111111111",
+  "9002222222222",
+  "9003333333333",
+];
+
+describe("ladeUndSpeichereBild", () => {
+  afterAll(async () => {
+    for (const ean of GESCHRIEBENE_EANS) {
+      await rm(lesePfadZuBild(env.PRODUKTBILDER_VERZEICHNIS, erzeugeBildSchluessel(ean)), {
+        force: true,
+      });
+    }
+  });
+
+  it("lädt das Bild, speichert es und setzt bild_schluessel", async () => {
+    const produkt = await legeProduktAn(umgebung.db, {
+      name: "Butter",
+      marke: null,
+      menge: 250,
+      einheit: "G",
+    });
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff]);
+    const abrufen = fakeBildAbruf(bytes);
+
+    const schluessel = await ladeUndSpeichereBild(
+      umgebung.db,
+      produkt.id,
+      "9001234567892",
+      "https://images.openfoodfacts.org/butter.jpg",
+      abrufen,
+    );
+
+    expect(schluessel).toBe("9001234567892.jpg");
+    const aktualisiert = await holeProdukt(umgebung.db, produkt.id);
+    expect(aktualisiert?.bildSchluessel).toBe("9001234567892.jpg");
+  });
+
+  it("liefert null und lässt bild_schluessel leer, wenn der Download fehlschlägt", async () => {
+    const produkt = await legeProduktAn(umgebung.db, {
+      name: "Milch",
+      marke: null,
+      menge: 1000,
+      einheit: "ML",
+    });
+    const abrufen = fakeBildAbruf(new Uint8Array(), false);
+
+    const schluessel = await ladeUndSpeichereBild(
+      umgebung.db,
+      produkt.id,
+      "9007654321098",
+      "https://images.openfoodfacts.org/kaputt.jpg",
+      abrufen,
+    );
+
+    expect(schluessel).toBeNull();
+    const aktualisiert = await holeProdukt(umgebung.db, produkt.id);
+    expect(aktualisiert?.bildSchluessel).toBeNull();
+  });
+
+  it("wirft nicht weiter, wenn der Abruf selbst eine Ausnahme auslöst", async () => {
+    const produkt = await legeProduktAn(umgebung.db, {
+      name: "Joghurt",
+      marke: null,
+      menge: 500,
+      einheit: "G",
+    });
+    const abrufen = mock(async () => {
+      throw new Error("Netzwerk nicht erreichbar");
+    }) as unknown as typeof fetch;
+
+    const schluessel = await ladeUndSpeichereBild(
+      umgebung.db,
+      produkt.id,
+      "9001111111111",
+      "https://images.openfoodfacts.org/joghurt.jpg",
+      abrufen,
+    );
+
+    expect(schluessel).toBeNull();
+  });
+
+  it("weist eine bildUrl ohne https ab, ohne einen Abruf zu starten", async () => {
+    const produkt = await legeProduktAn(umgebung.db, {
+      name: "Käse",
+      marke: null,
+      menge: 200,
+      einheit: "G",
+    });
+    const abrufen = fakeBildAbruf(new Uint8Array([1, 2, 3]));
+
+    const schluessel = await ladeUndSpeichereBild(
+      umgebung.db,
+      produkt.id,
+      "9002222222222",
+      "http://images.openfoodfacts.org/kaese.jpg",
+      abrufen,
+    );
+
+    expect(schluessel).toBeNull();
+    expect(abrufen).toHaveBeenCalledTimes(0);
+    const aktualisiert = await holeProdukt(umgebung.db, produkt.id);
+    expect(aktualisiert?.bildSchluessel).toBeNull();
+  });
+
+  it("weist eine bildUrl mit nicht erlaubtem Host ab, ohne einen Abruf zu starten", async () => {
+    const produkt = await legeProduktAn(umgebung.db, {
+      name: "Wurst",
+      marke: null,
+      menge: 300,
+      einheit: "G",
+    });
+    const abrufen = fakeBildAbruf(new Uint8Array([1, 2, 3]));
+
+    const schluessel = await ladeUndSpeichereBild(
+      umgebung.db,
+      produkt.id,
+      "9003333333333",
+      "https://169.254.169.254/latest/meta-data/bild.jpg",
+      abrufen,
+    );
+
+    expect(schluessel).toBeNull();
+    expect(abrufen).toHaveBeenCalledTimes(0);
+    const aktualisiert = await holeProdukt(umgebung.db, produkt.id);
+    expect(aktualisiert?.bildSchluessel).toBeNull();
+  });
+});

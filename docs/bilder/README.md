@@ -101,3 +101,46 @@ Manifest passen; der Dialog selbst ließ sich in der Nachprüfung nicht neu
 auslösen, weil die automatisierte Browsersitzung `beforeinstallprompt` nicht
 feuerte und kein Werkzeug für native Fenster-Aufnahmen zur Verfügung stand.
 Näheres dazu im Bericht.
+
+## Strichcode-Scan im Erfassungsformular (Plan 3, Task 8)
+
+**Herkunft dieser neun Aufnahmen — bitte vor dem Weiterverwenden lesen.** Sie
+entstanden gegen den Produktionsbau (`bun run build && bun run start`), aber
+**nicht** gegen `/erfassen` selbst: Diese Seite verlangt eine angemeldete
+Sitzung, und die ließ sich in diesem Durchgang nicht herstellen, ohne in der
+Datenbank an Benutzer- und Sitzungstabellen zu schreiben. Stattdessen lief eine
+vorübergehende Route, die `ErfassungsFormular` mit denselben Tokens, derselben
+CSP und demselben Bau, aber mit erfundenen Daten zeichnete; sie ist gelöscht
+und liegt in keinem Commit.
+
+Zwei Folgen davon stehen in den Bildern:
+
+1. **Die Navigationsleiste fehlt** — die Prüfroute lag außerhalb des
+   angemeldeten Bereichs. Am echten `/erfassen` sitzt sie am Handy unten und
+   ab `sm` oben; alles darüber verschiebt sich entsprechend.
+2. **Kamera und Decoder sind nachgebildet.** Windows-Chrome kennt keinen
+   `BarcodeDetector`, und ein Gerät zum Scannen stand nicht zur Verfügung. Das
+   Kamerabild ist eine gezeichnete Fläche, der Strichcode darauf wird nicht
+   wirklich gelesen. Belegt sind damit Aufbau, Ablauf und Zustände der
+   Oberfläche — **nicht**, dass ein echter EAN-13 auf einem Android-Gerät
+   erkannt wird. Das steht noch aus.
+
+Ebenfalls offen: `erfassen-handy-leer.png`, `erfassen-handy-fokus.png` und
+`erfassen-desktop.png` zeigen das Formular **ohne** die Scan-Schaltfläche und
+sind seit diesem Task veraltet. Sie bleiben vorerst stehen, weil eine
+Neuaufnahme dieselbe Sitzung braucht wie oben.
+
+| Datei | Was zu sehen ist |
+|---|---|
+| `erfassen-handy-scan-bereit.png` | Leeres Formular bei 390×844. Die Scan-Schaltfläche steht über „Produkt" — über den drei Feldern, die sie füllt, und unter der Kette, die man einmal je Einkauf wählt. |
+| `erfassen-handy-scan-kamera.png` | Laufende Kamera mit Zielrahmen, Statuszeile und Abbruch darunter. Der Abbruch liegt unter der Vorschau, damit die Hand nicht verdeckt, was man anvisiert. |
+| `erfassen-handy-scan-vorschlag.png` | Der Vorschlag aus Open Food Facts mit zwei ähnlichen Produkten aus dem eigenen Katalog. Die bestehenden Produkte stehen **oben** und tragen ihre Gebindegröße, „Neues Produkt anlegen" darunter und in der zurückhaltenden Variante — sonst wäre die Neuanlage der bequemste Weg und der Katalog führte bald drei Sorten Butter. |
+| `erfassen-handy-scan-vorschlag-ohne-treffer.png` | Derselbe Vorschlag ohne Treffer im Katalog. Erst hier wird „Neues Produkt anlegen" zur betonten Wahl — es ist dann der einzige Weg. |
+| `erfassen-handy-scan-vorschlag-fokus.png` | Sichtbarer Fokusring auf der ersten Produktzeile. Ihr zugänglicher Name lautet „Ist dasselbe wie Butter 250 g Kärntnermilch"; sichtbar steht der Satz nur einmal über der Liste, statt auf jeder Zeile. |
+| `erfassen-handy-scan-uebernommen.png` | Nach der Zuordnung: Produkt, Marke und Menge stehen in den Feldern, darüber steht in einem Satz, woher sie kommen. Die Menge steht als „250 g" da — so, wie `zerlegeMenge` sie wieder liest. |
+| `erfassen-handy-scan-unbekannt.png` | Strichcode gelesen, aber weder KassaTrack noch Open Food Facts kennen ihn. Sand statt Rot, und die Felder bleiben unangetastet: Hier hat niemand etwas falsch gemacht. |
+| `erfassen-handy-scan-fehlgeschlagen.png` | Das Nachschlagen selbst ist gescheitert (Netz). Derselbe Ton, aber mit dem zweiten Weg dazu: noch einmal scannen. |
+| `erfassen-desktop-scan-vorschlag.png` | Der Vorschlag bei 1280×900. Dieselbe Anordnung, nur breiter — die Zeilen bleiben linksbündig und über die volle Breite antippbar. |
+
+Die Browserkonsole war über den ganzen Durchgang leer: keine
+CSP-Verstöße, keine Hydrierungswarnungen, keine Fehler.

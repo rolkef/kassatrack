@@ -47,6 +47,7 @@ describe("legeProduktAn", () => {
     expect(gelesen?.name).toBe("Butter");
     expect(gelesen?.menge).toBe(250);
     expect(gelesen?.einheit).toBe("G");
+    expect(gelesen?.bildSchluessel).toBeNull();
   });
 
   it("erlaubt ein Produkt ohne Marke", async () => {

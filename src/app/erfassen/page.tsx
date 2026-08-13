@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { holeKetten } from "@/lib/katalog";
 import { requireUser } from "@/lib/sitzung";
 import { erfasse } from "./aktionen";
+import { bestaetigeZuordnung, loeseEanAuf } from "./ean-aktionen";
 import { ErfassungsFormular } from "./erfassungs-formular";
 
 export const metadata: Metadata = {
@@ -45,7 +46,16 @@ export default async function ErfassenSeite() {
       </header>
 
       <div data-auftritt className="animate-auftritt [animation-delay:80ms]">
-        {ketten.length === 0 ? <OhneKetten /> : <ErfassungsFormular ketten={ketten} aktion={erfasse} />}
+        {ketten.length === 0 ? (
+          <OhneKetten />
+        ) : (
+          <ErfassungsFormular
+            ketten={ketten}
+            aktion={erfasse}
+            loeseEanAuf={loeseEanAuf}
+            bestaetigeZuordnung={bestaetigeZuordnung}
+          />
+        )}
       </div>
     </main>
   );
