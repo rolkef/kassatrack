@@ -29,21 +29,41 @@ veröffentlicht).
 Statt die beiden Shop-Schnittstellen selbst nachzubauen, konsumiert dieser
 Plan den von heissepreise bereits aggregierten, normalisierten
 Tagesdatensatz: `https://heisse-preise.io/data/latest-canonical.json`. Ein
-Abruf statt zwei brüchiger Scraper, und er deckt neben Billa/Spar auch
-Hofer, Lidl und Penny ab — alle fünf Ketten, die heute schon im Katalog
-stehen.
+Abruf statt zwei brüchiger Scraper.
+
+**Direkt gegen eine echte Antwort verifiziert** (nicht nur aus der
+Projekt-Dokumentation übernommen — die lag an zwei Stellen daneben):
+
+- **Tatsächlich enthaltene Ketten:** `billa`, `spar`, `hofer`, `mpreis`,
+  `unimarkt`, dazu Drogerien (`dm`, `bipa`, `mueller`) und ausländische
+  Varianten (`dmDe`, `muellerDe`, `reweDe`, `sparSi`). **`lidl` und `penny`
+  sind nicht enthalten** — anders als zunächst recherchiert. Von den fünf
+  Ketten im Katalog erreicht dieser Sync also in der Praxis nur Billa, Spar
+  und Hofer; Lidl und Penny werden von der bereits vorgesehenen
+  Aktualitätsprüfung automatisch als „keine Daten" übersprungen, ohne dass
+  das Design dafür einen Sonderfall braucht.
+- **Rund 84 % aller Einträge tragen `"unavailable": true`** (ausgelistete
+  Artikel) — diese werden beim Verarbeiten ausdrücklich verworfen, sonst
+  bestünde der Katalogabgleich überwiegend aus totem Sortiment.
+- Jeder Eintrag trägt neben dem Namen einen **ketteneigenen, dauerhaften
+  Produktcode** (`id`, z. B. `"00-650902"` bei Billa — Teil von dessen
+  URL-Schlüssel). Keine EAN, aber stabil über die Zeit für dasselbe
+  Produkt — siehe Zuordnung unten.
 
 **Zwei Lücken der Quelle, die dieses Design mitträgt:**
 - **Keine EAN/GTIN** in den Einträgen — Zuordnung zum Katalog kann nicht
-  über `product_ean` laufen, nur über Name/Menge/Einheit gegen
-  `store_product.rohNamen`.
+  über `product_ean` laufen.
 - **Keine verlässliche Aktions-/Loyalty-Kennzeichnung** — jeder Eintrag
   wird als Normalpreis behandelt (siehe Umfang).
 
-Feed-Struktur (aus dem Repository, nicht selbst nachgemessen — im ersten
-Task gegen eine echte Antwort zu verifizieren): flaches Array, je Eintrag
-`store` (Kettenkürzel, z. B. `"billa"`), `name`, `price` (aktueller
-Regalpreis), `quantity`/`unit` (Gebindegröße), `bio` (Flag),
+Feed-Struktur (verifiziert): flaches Array, je Eintrag `store`
+(Kettenkürzel, klein geschrieben, z. B. `"billa"`), `id` (ketteneigener,
+dauerhafter Produktcode), `name`, `price` (aktueller Regalpreis),
+`quantity` (Zahl) + `unit` (Gebindegröße — bei Lebensmitteln `"g"`, `"kg"`,
+`"ml"`, `"l"`, `"stk"`, `"stück"`; daneben kommen auch fachfremde Einheiten
+vor wie `"cm"`, `"m"`, `"km"`, `"mg"`, `"Verpackungseinheit"` oder eine
+leere Zeichenkette — nicht deutbare Einheiten führen zum Verwerfen des
+Eintrags, siehe Ablauf), `bio` (Flag), `unavailable` (Flag, siehe oben),
 `priceHistory` (Array aus `{ date: "yyyy-mm-dd", price }`, absteigend
 sortiert).
 
@@ -54,18 +74,28 @@ sortiert).
   gestartet über einen Coolify Scheduled Task
 - Nur die fünf bereits im Katalog stehenden Ketten (Billa, Spar, Hofer,
   Lidl, Penny); eine im Feed neu auftauchende Kette (z. B. `dm`) wird
-  ignoriert, bis sie bewusst im Katalog ergänzt wird
+  ignoriert, bis sie bewusst im Katalog ergänzt wird. Ketten des Katalogs,
+  die der Feed gar nicht führt (aktuell Lidl, Penny), werden von derselben
+  Aktualitätsprüfung wie eine ausgefallene Kette behandelt — kein Sonderfall
 - Pro-Ketten-Aktualitätsprüfung: eine Kette ohne hinreichend frische
-  Einträge im Feed wird diesen Lauf übersprungen und im Protokoll vermerkt
-  — kein hartcodiertes „diese Kette ist tot", sondern eine laufende
-  Prüfung, die eine künftige Shop-Schließung (wie bei MPreis 2024)
-  automatisch abfängt
-- Exakte Zuordnung (normalisierter Name + Menge + Einheit) gegen
-  `store_product.rohNamen`; kein unscharfes Matching
+  Einträge im Feed (oder ganz ohne Einträge) wird diesen Lauf übersprungen
+  und im Protokoll vermerkt — kein hartcodiertes „diese Kette ist tot",
+  sondern eine laufende Prüfung, die eine künftige Shop-Schließung (wie bei
+  MPreis 2024) automatisch abfängt
+- Ausgelistete Artikel (`unavailable: true`) werden verworfen, bevor
+  überhaupt eine Zuordnung versucht wird
+- Zuordnung in zwei Stufen: zuerst exakt über den ketteneigenen Produktcode
+  (`id` aus dem Feed), falls schon einmal bestätigt; sonst exakt über
+  normalisierten Name + Menge + Einheit gegen `store_product.rohNamen`.
+  Kein unscharfes/Ähnlichkeits-Matching in beiden Stufen. Jede aus der
+  Prüfliste bestätigte Zuordnung trägt **beides** in `rohNamen` nach — den
+  Anzeigenamen und den Produktcode (als eigener, erkennbar unterscheidbarer
+  Eintrag, z. B. mit einem Kettenkürzel-Präfix) — sodass derselbe Artikel
+  auch nach einer Umbenennung durch die Kette weiterhin exakt trifft
 - Nicht zuordenbare Artikel landen in einer neuen Prüfliste
   (`chain_sync_ungeklaert`) statt automatisch einen neuen Katalogeintrag
   zu erzeugen
-- Neue Oberfläche `/verwaltung/ketten-abgleich`: Prüflisten-Einträge einem
+- Neue Oberfläche `/produkte/abgleich`: Prüflisten-Einträge einem
   bestehenden Produkt zuordnen (trägt den Rohnamen nach) oder als neues
   Produkt anlegen — beides über die bereits bestehenden Katalog-Funktionen
   (`sichereKettenProdukt`, `legeProduktAn`, `sucheProdukte`)
@@ -83,9 +113,9 @@ sortiert).
 
 **Bewusst nicht drin:**
 - **Kein unscharfes/Ähnlichkeits-Matching.** Jede aus der Prüfliste
-  bestätigte Zuordnung erweitert `rohNamen` — die Liste lernt sich über die
-  Zeit selbst leer, ein Rateverfahren wäre eine zusätzliche
-  Fehlerquelle ohne echten Nutzen dafür.
+  bestätigte Zuordnung erweitert `rohNamen` um Anzeigename **und**
+  Feed-Produktcode — die Liste lernt sich über die Zeit selbst leer, ein
+  Rateverfahren wäre eine zusätzliche Fehlerquelle ohne echten Nutzen dafür.
 - **Keine Aktions-/Loyalty-Preise aus dem Sync.** Der Feed unterscheidet
   Jö-/Kundenkarten-Aktionen nicht zuverlässig von Normalpreisen. Jeder
   synchronisierte Preis ist `Preisart: 'NORMAL'`; in die `offer`-Tabelle
@@ -105,16 +135,19 @@ sortiert).
 Neue Tabelle `chain_sync_ungeklaert` — die Prüfliste:
 
 - `id`, `chainId` (FK auf `chain`)
-- `rohname` (Text aus dem Feed, unverändert)
+- `feedId` (der ketteneigene Produktcode aus dem Feed, unverändert)
+- `rohname` (Anzeigename aus dem Feed, unverändert)
 - `menge`, `einheit` (aus dem Feed geparst)
 - `letzterPreis` (Regalpreis, zur Anzeige — keine Preis-Wahrheit, nur
   Orientierungshilfe beim Zuordnen)
 - `zuerstGesehenAm`, `zuletztGesehenAm`
 
 Kein Fremdschlüssel auf `product` — genau die fehlende Zuordnung ist der
-Zweck der Tabelle. Ein `unique`-Index auf (`chainId`, `rohname`) verhindert
+Zweck der Tabelle. Ein `unique`-Index auf (`chainId`, `feedId`) verhindert
 doppelte Prüflisten-Zeilen über mehrere Läufe hinweg; ein erneuter Fund
-aktualisiert nur `letzterPreis`/`letztGesehenAm`.
+aktualisiert nur `letzterPreis`/`letztGesehenAm` (der Produktcode ist der
+stabilere Schlüssel für „ist das derselbe offene Fall", nicht der
+Anzeigename, der sich ändern kann).
 
 Zwei kleine, nicht-schemaverändernde Ergänzungen an bestehendem Code:
 - `schreibeBeobachtung` (`src/lib/preise.ts`) bekommt einen optionalen
@@ -138,9 +171,13 @@ Zwei kleine, nicht-schemaverändernde Ergänzungen an bestehendem Code:
    und im Protokoll als „übersprungen (veraltet)" geführt. Beide Zahlen
    (50 %, drei Tage) als benannte Konstanten im Code, nicht als Magic
    Numbers verstreut — spätere Anpassung soll eine Zeile sein.
-4. **Je Artikel einer aktuellen Kette:**
-   - Rohname + Menge + Einheit exakt gegen `store_product.rohNamen` der
-     Kette abgleichen.
+4. **Je Artikel einer aktuellen Kette** (zuerst `unavailable: true` verwerfen,
+   dann `unit`/`quantity` parsen — bei nicht deutbarer Einheit den Eintrag
+   verwerfen und im Protokoll zählen, nicht in die Prüfliste aufnehmen, da
+   ohne Menge/Einheit kein sinnvoller Vorschlag entstünde):
+   - Zuerst den Feed-Produktcode exakt gegen `store_product.rohNamen` der
+     Kette abgleichen; kein Treffer → Anzeigename + Menge + Einheit exakt
+     abgleichen.
    - **Kein Treffer:** Zeile in `chain_sync_ungeklaert` anlegen/auffrischen.
    - **Treffer:** Regalpreis in Grundpreis umrechnen
      (`grundpreis(preis, { wert: menge, einheit })`); dann:
@@ -154,9 +191,17 @@ Zwei kleine, nicht-schemaverändernde Ergänzungen an bestehendem Code:
    Abbruch mitten im Lauf (Fehler vor dem Schreiben abbrechen lassen,
    nicht mittendrin weiterschreiben).
 
-## Die Prüfliste — `/verwaltung/ketten-abgleich`
+## Die Prüfliste — `/produkte/abgleich`
 
-Neue Seite nach dem Muster von `/verwaltung/zugriff`. Tabelle: Kette,
+Bewusst **nicht** unter `/verwaltung` (das ist der betreibenden Person
+vorbehalten, `holeBerechtigung()`/`darfVerwalten` — reine
+Zugriffsverwaltung). Diese Seite ist Katalogpflege, wie `/produkte` oder
+`/erfassen`: jede eingeladene Person darf sie sehen und bedienen, geschützt
+allein durch `requireUser()` — kein Sonderfall im sonst durchgängig
+besitzlosen Modell dieser App (siehe Task 5s Ruling in Plan 4).
+
+Seite nach dem Layout-Muster von `/verwaltung/zugriff` (dichte Ebene, ein
+Werkzeug für eine Aufgabe), nur mit anderem Gate. Tabelle: Kette,
 Rohname, Menge/Einheit, letzter bekannter Preis, zuerst/zuletzt gesehen.
 Je Zeile zwei Aktionen:
 
