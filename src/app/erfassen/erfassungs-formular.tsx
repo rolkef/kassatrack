@@ -45,7 +45,8 @@ import { benennePreisart, PREISARTEN, type ErfassungsAktion, type Ergebnis } fro
  * über dem Produktnamen und schreibt in dieselben Felder, die man sonst
  * tippt — sichtbar, überschreibbar, jederzeit umgehbar. Kein Gerät, keine
  * Berechtigung, keine Kennung im Netz: In allen drei Fällen bleibt das
- * Formular genau das, was es in Plan 2 war.
+ * Formular genau das, was es in Plan 2 war. Dazu kommt das Produktbild — aber
+ * ausschließlich aus dem eigenen Zwischenspeicher, siehe `UebernommenesBild`.
  */
 
 /** Ein bereits gespeicherter Preis dieses Einkaufs. */
@@ -336,15 +337,23 @@ export function ErfassungsFormular({
               />
             ) : null}
 
-            {/*
-              Bewusst `aria-live` statt `role="status"`: Auf diesem Bildschirm
-              gibt es genau eine stehende Statusfläche, und das ist der
-              Grundpreis. Was hier steht, ist eine vorübergehende Rückmeldung
-              zum letzten Scan. Angesagt wird sie trotzdem — `role="status"`
-              ist nichts anderes als diese beiden Attribute.
-            */}
-            <div aria-live="polite" aria-atomic="true">
-              <ScanMeldung scan={scan} />
+            <div className="flex items-center gap-3">
+              <UebernommenesBild scan={scan} />
+
+              {/*
+                Bewusst `aria-live` statt `role="status"`: Auf diesem Bildschirm
+                gibt es genau eine stehende Statusfläche, und das ist der
+                Grundpreis. Was hier steht, ist eine vorübergehende Rückmeldung
+                zum letzten Scan. Angesagt wird sie trotzdem — `role="status"`
+                ist nichts anderes als diese beiden Attribute.
+
+                `flex-1`, damit die Sand-Fläche der Fehl- und Unbekannt-Meldung
+                weiterhin über die volle Breite läuft: Ohne sie schrumpfte sie
+                in der Reihe auf ihre Textbreite zusammen.
+              */}
+              <div aria-live="polite" aria-atomic="true" className="min-w-0 flex-1">
+                <ScanMeldung scan={scan} />
+              </div>
             </div>
           </div>
 
@@ -600,6 +609,40 @@ function Vorschlagsfeld({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Das zwischengespeicherte Produktbild — oder gar nichts.
+ *
+ * Die Quelle ist ausnahmslos die eigene Route `/bilder/produkte/…`, nie die
+ * `bildUrl`, die der Open-Food-Facts-Vorschlag mitbringt. Genau dafür gibt es
+ * `ladeUndSpeichereBild`: Der Browser soll nie selbst bei Open Food Facts
+ * anklopfen, sonst erführe ein Dritter jeden einzelnen Scan. Deshalb erscheint
+ * das Bild erst, wenn ein aufgelöstes `Produkt` mit `bildSchluessel` vorliegt —
+ * bei einer bekannten EAN sofort, beim Vorschlag erst nach der bestätigten
+ * Zuordnung, die das Bild serverseitig holt. Im Vorschlag selbst steht es
+ * bewusst **nicht**: Dort gibt es nur die fremde Adresse.
+ *
+ * Klein und neben der Meldung, nicht groß über dem Formular: Es bestätigt, dass
+ * der Scan das richtige Produkt getroffen hat — mehr soll es nicht. Wer vor dem
+ * Regal steht, hat das Original in der Hand.
+ *
+ * Ein schlichtes `<img>` statt `next/image`: Die Datei liegt bereits auf dem
+ * eigenen Volume, wird von der eigenen Route mit `immutable` ausgeliefert und
+ * ist 56 px groß. Ein Optimierer davor holte sich nur eine zweite Kopie
+ * derselben Bytes.
+ */
+function UebernommenesBild({ scan }: { scan: ScanZustand }) {
+  if (scan.art !== "uebernommen" || !scan.produkt.bildSchluessel) return null;
+
+  return (
+    <img
+      data-auftritt
+      src={`/bilder/produkte/${scan.produkt.bildSchluessel}`}
+      alt={scan.produkt.name}
+      className="size-14 shrink-0 animate-auftritt rounded-klein bg-flaeche object-contain"
+    />
   );
 }
 

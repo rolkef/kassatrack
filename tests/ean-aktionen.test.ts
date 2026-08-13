@@ -121,6 +121,25 @@ describe("loeseEanAuf", () => {
 
     expect(ergebnis).toEqual({ art: "unbekannt" });
   });
+
+  /*
+   * Die Aktion ist ein eigener Endpunkt — der Scanner liefert zwar immer eine
+   * saubere EAN-13, ist aber nicht ihr einziger möglicher Aufrufer. Ohne die
+   * Prüfung landete die Zeichenkette ungeprüft im URL-Pfad der
+   * Open-Food-Facts-Abfrage. Der Test hält deshalb fest, dass **gar kein**
+   * Abruf stattfindet, nicht bloß, dass sein Ergebnis verworfen wird.
+   */
+  it("weist einen Strichcode ab, der keine 8 bis 14 Ziffern ist — ohne Abruf", async () => {
+    const abrufen = fakeOffAntwort({ status: 0 });
+    globalThis.fetch = abrufen;
+
+    for (const kaputt of ["../../../x", "90012345678a2", "1234567", "901234567890123", ""]) {
+      const fehler = await faengtFehler(() => loeseEanAuf(kaputt));
+      expect(fehler).toBeDefined();
+    }
+
+    expect(abrufen).toHaveBeenCalledTimes(0);
+  });
 });
 
 describe("bestaetigeZuordnung", () => {
@@ -175,5 +194,33 @@ describe("bestaetigeZuordnung", () => {
 
     expect(fehler).toBeDefined();
     expect(await anzahlProdukte()).toBe(0);
+  });
+
+  /*
+   * `product_ean.ean` ist ein `text`-Primärschlüssel ohne jede
+   * Check-Bedingung. Was die Aktion durchlässt, nistet sich dauerhaft als
+   * „Strichcode" ein — die Prüfung an der Grenze ist der einzige Riegel davor.
+   * Geprüft wird deshalb nicht nur der Wurf, sondern dass weder ein Produkt
+   * noch eine Verknüpfung entsteht.
+   */
+  it("weist einen Strichcode ab, der keine 8 bis 14 Ziffern ist — ohne etwas anzulegen", async () => {
+    const abrufen = fakeOffAntwort({ status: 0 });
+    globalThis.fetch = abrufen;
+
+    for (const kaputt of ["../../../x", "9001234567892 ", "1234567", "901234567890123", ""]) {
+      const fehler = await faengtFehler(() =>
+        bestaetigeZuordnung({
+          ean: kaputt,
+          neu: { name: "Brot", marke: null, menge: 500, einheit: "G" },
+          bildUrl: "https://images.openfoodfacts.org/brot.jpg",
+        }),
+      );
+
+      expect(fehler).toBeDefined();
+      expect(await findeProduktPerEan(umgebung.db, kaputt)).toBeNull();
+    }
+
+    expect(await anzahlProdukte()).toBe(0);
+    expect(abrufen).toHaveBeenCalledTimes(0);
   });
 });

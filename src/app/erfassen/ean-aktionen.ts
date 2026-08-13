@@ -9,6 +9,19 @@ import { requireUser } from "@/lib/sitzung";
 import type { EanErgebnis, NeuesProdukt } from "./ean-zustand";
 
 /**
+ * Acht bis vierzehn Ziffern — EAN-8, UPC-A, EAN-13, GTIN-14. Die Prüfung steht
+ * hier oben und nicht weiter unten, weil die Server-Aktionen die Systemgrenze
+ * sind: Sie sind eigene, direkt erreichbare Endpunkte, der Scanner ist nur
+ * einer ihrer möglichen Aufrufer. Bisher hing die Ziffern-Invariante
+ * ausschließlich an `erzeugeBildSchluessel`, also eine Ebene tiefer und hinter
+ * einem `catch`, das den Wurf zu einem `null` verschluckt — `product_ean.ean`
+ * und die Open-Food-Facts-URL sahen die Zeichenkette ungeprüft.
+ */
+function pruefeEan(ean: string): void {
+  if (!/^\d{8,14}$/.test(ean)) throw new Error("Ungültiger Strichcode.");
+}
+
+/**
  * Löst eine gescannte EAN auf. Drei Stufen, in dieser Reihenfolge:
  *
  * 1. `product_ean` kennt sie bereits — schnellster und einziger sicherer Weg.
@@ -20,6 +33,7 @@ import type { EanErgebnis, NeuesProdukt } from "./ean-zustand";
  */
 export async function loeseEanAuf(ean: string): Promise<EanErgebnis> {
   await requireUser();
+  pruefeEan(ean);
 
   const bekannt = await findeProduktPerEan(db, ean);
   if (bekannt) return { art: "bekannt", produkt: bekannt };
@@ -37,6 +51,20 @@ export async function loeseEanAuf(ean: string): Promise<EanErgebnis> {
  * Fällen wird — falls vorhanden und das Produkt noch kein Bild trägt — das
  * Bild geladen. Ein Fehlschlag dabei ist nicht fatal (siehe
  * `ladeUndSpeichereBild`) und wird hier nicht weiter behandelt.
+ *
+ * Ein zweiter Aufruf für dieselbe EAN legt kein zweites Produkt an: Der Riegel
+ * unten prüft zuerst, ob die EAN bereits verknüpft ist. Er ist allerdings
+ * *check-then-act* und nicht atomar. Zwei **echt nebenläufige** Aufrufe mit
+ * `neu` für dieselbe, noch unverknüpfte EAN sehen beide keine Verknüpfung,
+ * legen beide ein Produkt an, und `onConflictDoNothing` in `verknuepfeEan`
+ * lässt genau eine Verknüpfung gewinnen — das Produkt des Verlierers bliebe
+ * verwaist im Katalog. Aus der Oberfläche ist das nicht erreichbar: Das
+ * Formular riegelt einen zweiten Aufruf doppelt ab, über `laeuft !== null` und
+ * über `disabled` an jeder Schaltfläche; die Aufrufe laufen also
+ * nacheinander. Wasserdicht gegen einen Direktaufruf der Aktion an der
+ * Oberfläche vorbei wäre erst eine Zusicherung der Datenbank — eine
+ * Eindeutigkeit über die Verknüpfung samt Sperre oder ein `insert … returning`,
+ * das die Verknüpfung *vor* dem Anlegen des Produkts gewinnt.
  */
 export async function bestaetigeZuordnung(eingabe: {
   ean: string;
@@ -45,6 +73,7 @@ export async function bestaetigeZuordnung(eingabe: {
   bildUrl?: string | null;
 }): Promise<Produkt> {
   await requireUser();
+  pruefeEan(eingabe.ean);
 
   /*
    * Erst prüfen, ob die EAN schon verknüpft ist — unabhängig davon, ob

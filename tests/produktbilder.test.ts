@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { env } from "@/lib/env";
 import { legeProduktAn, holeProdukt } from "@/lib/katalog";
 import {
   erzeugeBildSchluessel,
@@ -66,7 +67,34 @@ function fakeBildAbruf(bytes: Uint8Array, ok = true) {
   ) as unknown as typeof fetch;
 }
 
+/*
+ * `ladeUndSpeichereBild` nimmt kein Verzeichnis entgegen, sondern schreibt in
+ * das echte `env.PRODUKTBILDER_VERZEICHNIS` — die mkdtemp-Wurzel oben hilft
+ * hier also nicht. Die Isolation liegt deshalb, wie in
+ * `tests/produktbilder-route.test.ts` begründet, an testlaufweit eindeutigen
+ * Schlüsseln; das Aufräumen entfernt genau diese und nichts sonst.
+ *
+ * Aufgeführt sind alle EANs dieses Blocks, nicht nur die des Happy Path: Ob
+ * eine Abweisung heute vor dem Schreiben zurückkehrt, ist eine Eigenschaft des
+ * geprüften Codes und keine, auf die das Aufräumen sich stützen sollte.
+ */
+const GESCHRIEBENE_EANS = [
+  "9001234567892",
+  "9007654321098",
+  "9001111111111",
+  "9002222222222",
+  "9003333333333",
+];
+
 describe("ladeUndSpeichereBild", () => {
+  afterAll(async () => {
+    for (const ean of GESCHRIEBENE_EANS) {
+      await rm(lesePfadZuBild(env.PRODUKTBILDER_VERZEICHNIS, erzeugeBildSchluessel(ean)), {
+        force: true,
+      });
+    }
+  });
+
   it("lädt das Bild, speichert es und setzt bild_schluessel", async () => {
     const produkt = await legeProduktAn(umgebung.db, {
       name: "Butter",

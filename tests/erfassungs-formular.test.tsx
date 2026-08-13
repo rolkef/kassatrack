@@ -35,6 +35,16 @@ const BUTTER: Produkt = {
   bildSchluessel: null,
 };
 
+/** Dasselbe Produkt, nachdem sein Bild im eigenen Volume liegt. */
+const BUTTER_MIT_BILD: Produkt = { ...BUTTER, bildSchluessel: "9001234567892.jpg" };
+
+/*
+ * Die Adresse, die Open Food Facts im Vorschlag mitliefert. Sie darf im
+ * ausgelieferten Markup **nirgends** auftauchen — siehe den Regressionstest
+ * ganz unten.
+ */
+const OFF_BILD = "https://images.openfoodfacts.org/images/products/butter.jpg";
+
 const bestaetigeZuordnung = mock(
   async (_eingabe: {
     ean: string;
@@ -512,6 +522,92 @@ describe("ErfassungsFormular — Strichcode", () => {
     expect(screen.queryByRole("group", { name: /Vorschlag/i })).toBeNull();
     expect(screen.getByRole("button", { name: "Strichcode scannen" })).toBeDefined();
     expect(bestaetigeZuordnung).not.toHaveBeenCalled();
+  });
+
+  it("zeigt das zwischengespeicherte Produktbild, wenn die bekannte EAN eines trägt", async () => {
+    loeseEanAuf.mockResolvedValueOnce({ art: "bekannt", produkt: BUTTER_MIT_BILD });
+    zeichne();
+
+    await scanne();
+
+    const bild = await screen.findByRole("img", { name: "Butter" });
+    expect(bild.getAttribute("src")).toBe("/bilder/produkte/9001234567892.jpg");
+  });
+
+  it("zeigt kein Bild, wenn das aufgelöste Produkt keines trägt", async () => {
+    loeseEanAuf.mockResolvedValueOnce({ art: "bekannt", produkt: BUTTER });
+    zeichne();
+
+    await scanne();
+
+    await waitFor(() => expect(screen.getByText(/Aus dem Strichcode übernommen/)).toBeDefined());
+    expect(screen.queryByRole("img")).toBeNull();
+  });
+
+  /*
+   * Das Bild entsteht erst in `bestaetigeZuordnung` — die Aktion lädt es
+   * serverseitig herunter und gibt das Produkt mit gesetztem `bildSchluessel`
+   * zurück. Vorher gibt es nichts anzuzeigen, was aus dem eigenen
+   * Zwischenspeicher käme.
+   */
+  it("zeigt das Bild, sobald die bestätigte Zuordnung eines mitbringt", async () => {
+    loeseEanAuf.mockResolvedValueOnce({
+      art: "vorschlag",
+      ean: EAN,
+      kandidat: { name: "Butter", marke: "Berglandmilch", menge: 250, einheit: "G", bildUrl: OFF_BILD },
+      aehnliche: [],
+    });
+    bestaetigeZuordnung.mockResolvedValueOnce(BUTTER_MIT_BILD);
+    zeichne();
+
+    await scanne();
+    await userEvent.click(await screen.findByRole("button", { name: /Neues Produkt anlegen/i }));
+
+    const bild = await screen.findByRole("img", { name: "Butter" });
+    expect(bild.getAttribute("src")).toBe("/bilder/produkte/9001234567892.jpg");
+  });
+
+  /*
+   * Der wichtigste Test dieser Datei.
+   *
+   * Der Vorschlag trägt die Bildadresse von Open Food Facts bei sich. Würde
+   * sie je in ein `src` geraten, holte sich der **Browser** das Bild direkt
+   * dort — und Open Food Facts erführe von jedem einzelnen Scan samt IP-Adresse
+   * und Zeitpunkt. Genau davor steht die ganze Kette aus
+   * `ladeUndSpeichereBild`, dem eigenen Volume und der eigenen Route: Bilder
+   * kommen ausschließlich von hier. Der Test prüft deshalb nicht nur, dass
+   * gerade kein `<img>` dasteht, sondern dass die fremde Adresse im gesamten
+   * Markup nicht vorkommt und jedes vorhandene Bild aus der eigenen Route
+   * stammt.
+   */
+  it("lädt im Vorschlag nichts von Open Food Facts — die fremde Adresse steht nirgends im Markup", async () => {
+    loeseEanAuf.mockResolvedValueOnce({
+      art: "vorschlag",
+      ean: EAN,
+      kandidat: { name: "Butter", marke: "Berglandmilch", menge: 250, einheit: "G", bildUrl: OFF_BILD },
+      aehnliche: [
+        { id: "p9", name: "Butter", marke: null, menge: 250, einheit: "G", bildSchluessel: null },
+      ],
+    });
+    bestaetigeZuordnung.mockResolvedValueOnce(BUTTER_MIT_BILD);
+    zeichne();
+
+    await scanne();
+    await screen.findByRole("group", { name: /Vorschlag/i });
+
+    expect(document.body.innerHTML).not.toContain(OFF_BILD);
+    expect(document.body.innerHTML).not.toContain("openfoodfacts.org");
+    expect(screen.queryByRole("img")).toBeNull();
+
+    // Und auch nach der Bestätigung nicht: Was dann erscheint, kommt aus der
+    // eigenen Route.
+    await userEvent.click(screen.getByRole("button", { name: /Neues Produkt anlegen/i }));
+    await screen.findByRole("img", { name: "Butter" });
+
+    expect(document.body.innerHTML).not.toContain("openfoodfacts.org");
+    for (const bild of document.querySelectorAll("img")) {
+      expect(bild.getAttribute("src")).toMatch(/^\/bilder\/produkte\//);
+    }
   });
 
   it("nimmt die Scan-Meldung nach dem Speichern zurück", async () => {
