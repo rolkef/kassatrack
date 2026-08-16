@@ -1262,6 +1262,7 @@ import { holeKetten, legeKettenAn, legeProduktAn } from "@/lib/katalog";
 import { bestaetigeZuordnung, holeUngeklaerte } from "@/lib/ketten-abgleich";
 import { fuehreSyncAus } from "../scripts/synchronisiere-ketten";
 import { starteTestDatenbank } from "./helfer/db";
+import { faengtFehler } from "./helfer/fehler";
 
 const umgebung = await starteTestDatenbank();
 await migrate(umgebung.db, { migrationsFolder: "./drizzle" });
@@ -1338,7 +1339,11 @@ describe("fuehreSyncAus", () => {
   it("wirft, wenn der Feed nicht erreichbar ist, und schreibt nichts", async () => {
     const abrufen = mock(async () => new Response("", { status: 500 })) as unknown as typeof fetch;
 
-    await expect(fuehreSyncAus(umgebung.db, abrufen, JETZT)).rejects.toThrow();
+    // Kein .rejects hier -- fuehreSyncAus fragt vor dem Feed-Abruf bereits
+    // echtes Postgres an (legeKettenAn/holeKetten), ist also ein
+    // DB-anfragendes Promise im Sinne der Testkonvention.
+    const fehler = await faengtFehler(fuehreSyncAus(umgebung.db, abrufen, JETZT));
+    expect(fehler).toBeDefined();
     expect(await holeUngeklaerte(umgebung.db)).toHaveLength(0);
   });
 
