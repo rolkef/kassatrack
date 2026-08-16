@@ -100,14 +100,22 @@ export async function legeAlsNeuesProduktAn(
     einheit: eintrag.einheit,
   };
 
-  const produkt = (await findeProdukt(db, eingabeProdukt)) ?? (await legeProduktAn(db, eingabeProdukt));
+  /*
+   * In einer Transaktion, wie derselbe Ablauf auf dem Erfassungspfad: Bricht
+   * es zwischen Anlegen und Zuordnen ab, bliebe sonst ein Produkt ohne jede
+   * Ketten-Zuordnung im Katalog stehen — mit leerer Preismatrix und ohne
+   * Prüflisten-Eintrag, der es je wieder anfassen würde.
+   */
+  await db.transaction(async (tx) => {
+    const produkt = (await findeProdukt(tx, eingabeProdukt)) ?? (await legeProduktAn(tx, eingabeProdukt));
 
-  await bestaetigeZuordnung(db, {
-    ungeklaertId,
-    chainId: eintrag.chainId,
-    feedId: eintrag.feedId,
-    rohname: eintrag.rohname,
-    productId: produkt.id,
+    await bestaetigeZuordnung(tx, {
+      ungeklaertId,
+      chainId: eintrag.chainId,
+      feedId: eintrag.feedId,
+      rohname: eintrag.rohname,
+      productId: produkt.id,
+    });
   });
 
   revalidatePath("/produkte/abgleich");

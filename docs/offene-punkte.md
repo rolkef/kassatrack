@@ -503,15 +503,6 @@ gegen das, was zuletzt noch präsent war.
 - **Lidl und Penny stehen aktuell nicht im Feed** und werden von der
   Aktualitätsprüfung automatisch übersprungen — sollte heisse-preise.io
   sie je aufnehmen, greift der Sync ohne Codeänderung.
-- **`legeAlsNeuesProduktAn` (`src/app/produkte/abgleich/aktionen.ts`) ist
-  nicht transaktional**, anders als der entsprechende Pfad in
-  `src/app/erfassen/aktionen.ts`. Die Funktion ruft `findeProdukt`, bei
-  Fehlschlag `legeProduktAn` und danach `bestaetigeZuordnung` als drei
-  getrennte Datenbank-Operationen auf. Ein Absturz zwischen diesen
-  Schritten könnte ein verwaistes Produkt hinterlassen — abgemildert, aber
-  nicht ausgeschlossen: Der Dedup-Riegel (`findeProdukt`) sorgt dafür, dass
-  ein *künftiger* Versuch dieses Produkt findet und wiederverwendet, statt
-  es ein zweites Mal anzulegen.
 - **Task 2:** Der `MENGE_OBERGRENZE`-Überlauf-Zweig in
   `feedMengeZuBasiseinheit` ist ungetestet.
 - **Task 2:** Ein kosmetischer Leerzeichen-Tippfehler in
