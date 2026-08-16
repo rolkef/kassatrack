@@ -177,6 +177,33 @@ describe("AnmeldeFormular", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  /*
+   * Der Google-Weg schließt mit `authClient.signIn.social(...)` nicht die
+   * Anmeldung ab, sondern nur den Schritt davor: Better Auths eigenes
+   * Redirect-Plugin liest die Antwort und setzt selbst `window.location.href`
+   * auf die echte Google-Seite (node_modules/better-auth/dist/client/
+   * fetch-plugins.mjs). Ein zusätzliches `nachErfolg()` hier würde im selben
+   * Tick eine zweite Navigation auslösen und die zu Google noch im Browser
+   * abbrechen, bevor sie ankommt — genau das Verhalten, das am 2026-08-16
+   * live beobachtet wurde (Network-Tab: die Google-Anfrage steht auf
+   * „abgebrochen", danach folgt sofort eine Weiterleitung zurück auf die
+   * eigene Domain). Ohne diesen Test hätte ein Fix für dieses Verhalten
+   * lautlos wieder verschwinden können, weil der einzige bestehende
+   * `nachErfolg`-Test den Passkey-Weg prüft, nicht diesen.
+   */
+  it("ruft nachErfolg beim Google-Weg NICHT auf — das würde Better Auths eigene Weiterleitung zu Google noch abbrechen", async () => {
+    const nachErfolg = mock(() => {});
+
+    render(<AnmeldeFormular nachErfolg={nachErfolg} />);
+    const google = screen.getByRole("button", { name: /Mit Google anmelden/i });
+    await userEvent.click(google);
+
+    // Warten, bis der gesamte Zug (Erfolgsfall inklusive) durchgelaufen ist —
+    // erst dann sagt „nicht aufgerufen" wirklich etwas.
+    await waitFor(() => expect(google.hasAttribute("disabled")).toBe(false));
+    expect(nachErfolg).not.toHaveBeenCalled();
+  });
+
   it("beschreibt den Passkey-Weg ohne Fachjargon", () => {
     render(<AnmeldeFormular />);
     const passkey = screen.getByRole("button", { name: /Mit Passkey anmelden/i });
