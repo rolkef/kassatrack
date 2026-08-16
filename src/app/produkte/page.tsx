@@ -110,6 +110,30 @@ export default async function ProduktSuchSeite({
           <Trefferliste treffer={treffer} begriff={begriff} />
         )}
       </div>
+
+      {/*
+        Der einzige Weg zum Katalogabgleich. Er steht hier und nicht in der
+        Navigationsleiste, weil er keine der drei Alltagsaufgaben ist, sondern
+        Nacharbeit am Katalog — und der Katalog ist dieser Bildschirm.
+        `istAktiv` in der Leiste greift über `startsWith("/produkte/")`, „Produkte"
+        bleibt dort also hervorgehoben.
+
+        Ganz unten und gedämpft: Wer im Geschäft steht, sucht einen Preis und
+        soll hier nicht abbiegen. Wer nacharbeitet, hat Zeit zu scrollen.
+
+        Bewusst ohne Anzahl daneben — die wäre eine zusätzliche Abfrage auf
+        jedem Aufruf der meistbenutzten Seite, für eine Zahl, die auf der
+        Zielseite ohnehin steht.
+      */}
+      <p
+        data-auftritt
+        className="animate-auftritt text-[0.8125rem] leading-relaxed text-gedaempft [animation-delay:200ms]"
+      >
+        <Link href="/produkte/abgleich" className="text-marke underline underline-offset-4">
+          Katalogabgleich
+        </Link>{" "}
+        — Artikel aus dem täglichen Ketten-Abgleich, die noch zu keinem Produkt gehören.
+      </p>
     </main>
   );
 }
