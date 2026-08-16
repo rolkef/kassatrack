@@ -36,18 +36,13 @@ export async function synchronisiereBeobachtungen(
 
   const letztesDatum = letzte ? letzte.beobachtetAm.toISOString().slice(0, 10) : null;
 
-  // Absteigend (neuestes zuerst): Ein Preis, der über mehrere Tage gleich
-  // bleibt, wird am zuletzt bestätigten Tag dieser Preissträhne verbucht, nicht
-  // am ersten. Aufsteigende Verarbeitung würde denselben Preis am ältesten
-  // Tag der Strähne eintragen — sichtbar richtig, bis eine spätere Strähne mit
-  // demselben Preis wie eine noch spätere endet und der Änderungszeitpunkt in
-  // die falsche Richtung verschoben würde.
-  const absteigend = [...eingabe.verlauf].sort((a, b) => b.date.localeCompare(a.date));
+  // Chronologisch (älteste zuerst) -- der Feed liefert absteigend sortiert.
+  const chronologisch = [...eingabe.verlauf].sort((a, b) => a.date.localeCompare(b.date));
 
   let vorherigerGrundpreis = letzte ? Number(letzte.grundpreis) : null;
   let geschrieben = 0;
 
-  for (const punkt of absteigend) {
+  for (const punkt of chronologisch) {
     if (letztesDatum && punkt.date <= letztesDatum) continue;
 
     const grundpreisWert = grundpreis(punkt.price, eingabe.menge);

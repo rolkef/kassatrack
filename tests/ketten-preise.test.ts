@@ -41,7 +41,7 @@ describe("synchronisiereBeobachtungen", () => {
     const beobachtungen = await holeBeobachtungen(storeProductId);
     expect(beobachtungen).toHaveLength(2);
     expect(beobachtungen[0].beobachtetAm.toISOString().slice(0, 10)).toBe("2024-01-01");
-    expect(beobachtungen[1].beobachtetAm.toISOString().slice(0, 10)).toBe("2024-03-01");
+    expect(beobachtungen[1].beobachtetAm.toISOString().slice(0, 10)).toBe("2024-02-15");
   });
 
   it("schreibt bei einem Folgelauf nur, wenn sich der Preis geändert hat", async () => {
