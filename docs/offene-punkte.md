@@ -467,3 +467,100 @@ Zwei Dinge bleiben offen und gehören vor den nächsten Einsatz geprüft:
   an die sich das hängen ließe.
 - **Billa/Spar-Anbindung und Beleg-Erkennung** sind eigene, spätere Pläne. Der
   Optimierer liest ausschließlich, was in Plan 2 und 3 bereits erfasst wurde.
+
+## Aus dem Ketten-API-Sync (Plan 5)
+
+Sieben Tasks, jeder mit eigenem Review. Was hier steht, ist der Abgleich
+gegen das vollständige Protokoll dieser Reviews
+(`.superpowers/sdd/2026-08-13-billa-spar-api-sync/progress.md`) — nicht nur
+gegen das, was zuletzt noch präsent war.
+
+### Erledigt
+
+- **Drei von Task 1s eigenen Tests waren stillschweigend wirkungslos.**
+  `tests/chain-sync-schema.test.ts` rief `faengtFehler(promise)` mit einer
+  bereits ausgeführten, bloßen Drizzle-Query-Builder-Promise auf statt mit
+  einem Thunk (`() => promise`) — `faengtFehler`s tatsächlicher Vertrag
+  verlangt Letzteres. Dadurch warf `aktion()` selbst einen `TypeError`
+  („aktion is not a function"), der als „der Fehler" durchging, während die
+  eigentliche INSERT-Anweisung sehr wahrscheinlich nie an Postgres
+  abgeschickt wurde (Drizzle-Query-Builder sind lazy/thenable, nicht
+  eifrig ausgeführt). Diese drei Tests bewiesen damit ihren eigenen
+  `TypeError`, nicht die drei Datenbank-Bedingungen, die sie vorgaben zu
+  prüfen — obwohl Task 1s Review ausdrücklich lobte, die Tests prüften
+  „Bedingungsverhalten, nicht nur den Erfolgsfall". Der Fehler stand in der
+  Plan-Vorlage selbst (Task 1s Brief), nicht bei der Umsetzung. In Task 6
+  entdeckt (beim Ausführen von `bun run build`), in einem eigenen,
+  leicht rückgängig zu machenden Commit behoben (alle drei Aufrufe in
+  `() =>` gekapselt), unabhängig nachgeprüft (`bun test
+  tests/chain-sync-schema.test.ts` — 5/5 grün, echte CHECK-Constraints
+  jetzt tatsächlich erreicht). Der Plan enthielt denselben Fehler ein
+  zweites Mal in Task 5s Brief; dort hat der Implementierer ihn selbst
+  gefunden und richtig behoben, bevor er ins Review ging.
+
+### Warten
+
+- **Lidl und Penny stehen aktuell nicht im Feed** und werden von der
+  Aktualitätsprüfung automatisch übersprungen — sollte heisse-preise.io
+  sie je aufnehmen, greift der Sync ohne Codeänderung.
+- **`legeAlsNeuesProduktAn` (`src/app/produkte/abgleich/aktionen.ts`) ist
+  nicht transaktional**, anders als der entsprechende Pfad in
+  `src/app/erfassen/aktionen.ts`. Die Funktion ruft `findeProdukt`, bei
+  Fehlschlag `legeProduktAn` und danach `bestaetigeZuordnung` als drei
+  getrennte Datenbank-Operationen auf. Ein Absturz zwischen diesen
+  Schritten könnte ein verwaistes Produkt hinterlassen — abgemildert, aber
+  nicht ausgeschlossen: Der Dedup-Riegel (`findeProdukt`) sorgt dafür, dass
+  ein *künftiger* Versuch dieses Produkt findet und wiederverwendet, statt
+  es ein zweites Mal anzulegen.
+- **Task 2:** Der `MENGE_OBERGRENZE`-Überlauf-Zweig in
+  `feedMengeZuBasiseinheit` ist ungetestet.
+- **Task 2:** Ein kosmetischer Leerzeichen-Tippfehler in
+  `tests/ketten-feed.test.ts:234`.
+- **Task 3:** `tests/ketten-abgleich.test.ts` hat zwei getrennte
+  `drizzle-orm`-Importe (`sql`, `eq`), die sich zu einem zusammenfassen
+  ließen — rein kosmetisch.
+- **Task 5:** `holeProductIdFuer` im Sync-Skript macht eine zusätzliche
+  Datenbank-Rückfrage, weil Task 3s Finder-Funktionen nur `storeProductId`
+  liefern, nicht `productId`. Beheben ließe sich das nur, indem man Task 3s
+  bereits abgenommene Rückgabeform erweitert — ein möglicher
+  Folgeauftrag, kein Mangel.
+- **Task 5:** Die Bedingung in `main()`, die „keine Kette hatte frische
+  Daten" erkennt, ist umständlich formuliert, aber korrekt — rein
+  kosmetisch.
+- **Task 6:** Mehrere kleine Oberflächen-Punkte aus dem Review blieben
+  zurückgestellt: eine mögliche Vereinfachung des `fuehreAus`-Wrappers,
+  der Geltungsbereich des `laeuft`-Zustands, `SUCH_VERZOEGERUNG` an zwei
+  Stellen dupliziert statt geteilt, `Abschnitt`/`Leer`-Markup dupliziert
+  aus `verwaltung/zugriff`, ein fehlender Hinweis auf die Möglichkeit,
+  dass Menge/Einheit beim Zuordnen zu einem bestehenden Produkt nicht
+  übereinstimmen (menschliche Übersteuerung), sowie kosmetische
+  Formatierung in Commit `832e42f`.
+- **Docker build war während der gesamten Umsetzung dieses Plans nicht
+  verifizierbar** — bereits aus Plan 3/4 bekannte, in Abschnitt 13 dieser
+  Anleitung dokumentierte lokale TLS-Interception durch Norton (Aussteller
+  „Norton Web/Mail Shield Root" statt eines echten Zertifikats), die den
+  echten Coolify-Build-Server nicht betrifft. In Task 7 erneut geprüft:
+  `echo | openssl s_client … | openssl x509 -noout -issuer` zeigt weiterhin
+  den Norton-Aussteller, und `docker build -t kassatrack-test .` scheitert
+  weiterhin exakt an derselben Stelle (`bun install --frozen-lockfile` im
+  `deps`-Stage, `UNABLE_TO_VERIFY_LEAF_SIGNATURE` bei mehreren
+  Tarball-Downloads) — dieselbe, bereits dokumentierte Umgebungs-Einschränkung,
+  kein neuer Befund. Ein echter `docker build` auf einer Maschine ohne diese
+  Interception steht weiterhin aus.
+
+### Bewusste Entscheidungen, keine Mängel
+
+- **Kein unscharfes Matching.** Jede aus der Prüfliste bestätigte Zuordnung
+  ist ein bewusster menschlicher Klick, keine Ähnlichkeits-Heuristik, die
+  sich irren könnte.
+- **Keine Aktions-/Loyalty-Preise aus dem Sync.** Der Feed unterscheidet
+  Regal- von Aktionspreis nicht verlässlich; nur der Regalpreis fließt in
+  die Preisbeobachtung ein.
+- **Keine automatische Ketten-Anlage.** Eine im Feed neu auftauchende Kette
+  (z. B. `dm`) wird ignoriert, nicht automatisch angelegt — die Menge der
+  vom Katalog verfolgten Ketten bleibt eine bewusste Entscheidung, kein
+  Nebeneffekt eines Feed-Inhalts.
+- **Aggregierter Datensatz statt eigener Shop-Scraper.** Der Plan nutzt den
+  von heisse-preise.io bereits aggregierten, normalisierten Feed über einen
+  einzigen Abruf statt zwei eigener, brüchiger Scraper gegen die
+  Billa-/Spar-Shop-APIs direkt.
