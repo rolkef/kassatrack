@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTransition } from "react";
+import { Schaltflaeche } from "@/components/ui/schaltflaeche";
+import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
 type Ziel = {
@@ -28,7 +31,13 @@ const ZUGRIFF: Ziel = { href: "/verwaltung/zugriff", name: "Zugriff", Symbol: Sy
  * Fallstrick, aus dem die Aktionen in dieser App hereingereicht werden.
  */
 export function AppNavigation({ darfVerwalten }: { darfVerwalten: boolean }) {
-  return <Navigationsleiste pfad={usePathname()} darfVerwalten={darfVerwalten} />;
+  return (
+    <Navigationsleiste
+      pfad={usePathname()}
+      darfVerwalten={darfVerwalten}
+      meldeAb={() => authClient.signOut()}
+    />
+  );
 }
 
 /**
@@ -53,9 +62,12 @@ export function AppNavigation({ darfVerwalten }: { darfVerwalten: boolean }) {
 export function Navigationsleiste({
   pfad,
   darfVerwalten,
+  meldeAb,
 }: {
   pfad: string;
   darfVerwalten: boolean;
+  /** Injiziert statt `authClient.signOut()` direkt zu rufen — siehe Testdatei. */
+  meldeAb: () => Promise<unknown>;
 }) {
   const ziele = darfVerwalten ? [...ZIELE, ZUGRIFF] : ZIELE;
 
@@ -74,8 +86,9 @@ export function Navigationsleiste({
         gibt es keine Zurück-Schaltfläche des Browsers. Sie scrollt bewusst mit
         und klebt nicht — die feste Leiste unten ist schon Platz genug.
       */}
-      <div className="mx-auto flex w-full max-w-xl px-5 pt-[env(safe-area-inset-top)] sm:hidden">
+      <div className="mx-auto flex w-full max-w-xl items-center justify-between px-5 pt-[env(safe-area-inset-top)] sm:hidden">
         <Wortmarke aktuell={pfad === "/"} />
+        <AbmeldenSchaltflaeche meldeAb={meldeAb} />
       </div>
 
       <nav
@@ -128,9 +141,52 @@ export function Navigationsleiste({
               );
             })}
           </ul>
+
+          <span className="hidden sm:ml-2 sm:flex">
+            <AbmeldenSchaltflaeche meldeAb={meldeAb} />
+          </span>
         </div>
       </nav>
     </>
+  );
+}
+
+/**
+ * Eigenständig statt ein viertes `Ziel`: Abmelden ist eine Handlung, keine
+ * Stelle, an der man bleibt — in derselben Liste stünde sie zwischen echten
+ * Bereichen und würde für einen von ihnen gehalten. Am Handy sitzt sie darum
+ * bei der Wortmarke oben, nicht in der Daumen-Leiste unten; am Schreibtisch
+ * am Ende derselben Leiste.
+ *
+ * Ohne Rückfrage und ohne Rot: Abmelden zerstört nichts, es kehrt um. Der
+ * einzige Schutz gegen einen doppelten Klick ist `laedt`/`disabled`, kein
+ * Dialog, den man erst wegklicken müsste.
+ */
+function AbmeldenSchaltflaeche({ meldeAb }: { meldeAb: () => Promise<unknown> }) {
+  const [laeuft, starte] = useTransition();
+
+  return (
+    <Schaltflaeche
+      variante="neben"
+      groesse="dicht"
+      laedt={laeuft}
+      symbol={<SymbolAbmelden />}
+      onClick={() =>
+        starte(async () => {
+          try {
+            await meldeAb();
+          } finally {
+            // Wie bei der Anmeldung: ein echter Seitenwechsel, kein
+            // Router-Übergang, damit Proxy und Server-Komponenten die
+            // beendete Sitzung sofort sehen — siehe anmelde-formular.tsx.
+            window.location.assign("/anmelden");
+          }
+        })
+      }
+    >
+      {/* Am Handy nur das Symbol, am Schreibtisch daneben auch der Text. */}
+      <span className="sr-only sm:not-sr-only">Abmelden</span>
+    </Schaltflaeche>
   );
 }
 
@@ -234,6 +290,30 @@ function SymbolZettel({ aktiv }: { aktiv: boolean }) {
         className={aktiv ? "stroke-hintergrund" : "stroke-current"}
         strokeWidth="1.5"
         strokeLinecap="round"
+      />
+    </Rahmen>
+  );
+}
+
+/** Türrahmen, offen zur Seite, mit Pfeil hindurch — kein Zustand, immer gleich. */
+function SymbolAbmelden() {
+  return (
+    <Rahmen>
+      <path
+        d="M9 2.5H4.25a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1H9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7 8h6.25M10.5 5.5 13.25 8l-2.75 2.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </Rahmen>
   );
