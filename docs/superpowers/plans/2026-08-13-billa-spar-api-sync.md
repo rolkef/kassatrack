@@ -171,7 +171,7 @@ describe("chain_sync_ungeklaert", () => {
 
   it("weist eine negative Menge ab", async () => {
     const [kette] = await holeKetten(umgebung.db);
-    const fehler = await faengtFehler(
+    const fehler = await faengtFehler(() =>
       umgebung.db.insert(chainSyncUngeklaert).values({
         id: randomUUID(),
         chainId: kette.id,
@@ -187,7 +187,7 @@ describe("chain_sync_ungeklaert", () => {
 
   it("weist eine unbekannte Einheit ab", async () => {
     const [kette] = await holeKetten(umgebung.db);
-    const fehler = await faengtFehler(
+    const fehler = await faengtFehler(() =>
       umgebung.db.insert(chainSyncUngeklaert).values({
         id: randomUUID(),
         chainId: kette.id,
@@ -213,7 +213,7 @@ describe("chain_sync_ungeklaert", () => {
       letzterPreis: "1.99",
     });
 
-    const fehler = await faengtFehler(
+    const fehler = await faengtFehler(() =>
       umgebung.db.insert(chainSyncUngeklaert).values({
         id: randomUUID(),
         chainId: kette.id,
@@ -1342,7 +1342,7 @@ describe("fuehreSyncAus", () => {
     // Kein .rejects hier -- fuehreSyncAus fragt vor dem Feed-Abruf bereits
     // echtes Postgres an (legeKettenAn/holeKetten), ist also ein
     // DB-anfragendes Promise im Sinne der Testkonvention.
-    const fehler = await faengtFehler(fuehreSyncAus(umgebung.db, abrufen, JETZT));
+    const fehler = await faengtFehler(() => fuehreSyncAus(umgebung.db, abrufen, JETZT));
     expect(fehler).toBeDefined();
     expect(await holeUngeklaerte(umgebung.db)).toHaveLength(0);
   });
