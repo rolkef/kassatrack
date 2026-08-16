@@ -68,19 +68,35 @@ describe("istKetteAktuell", () => {
     };
   }
 
-  it("gilt als aktuell, wenn die Hälfte der Einträge höchstens 3 Tage alt ist", () => {
+  /*
+   * Live-Fund vom 2026-08-16: Billa und Spar hatten an dem Tag nur 6,6 % bzw.
+   * 0,8 % Einträge mit einem `priceHistory[0].date` der letzten drei Tage,
+   * obwohl beide Ketten nachweislich taggenau aktuell waren (das jüngste
+   * Datum über die ganze Kette war „heute"). Der Feed ist ein Änderungs-
+   * protokoll — die meisten Preise ändern sich an einem gegebenen Tag
+   * schlicht nicht, auch bei einer gesund laufenden Kette. Ein Anteils-Schwellwert
+   * („die Hälfte muss frisch sein") ist deshalb strukturell zu streng und hätte
+   * beide Ketten fälschlich als tot gemeldet. Maßgeblich ist stattdessen, ob
+   * *irgendein* Eintrag der Kette kürzlich eine Preisänderung verzeichnet hat.
+   */
+  it("gilt als aktuell, wenn mindestens ein Eintrag frisch ist — auch wenn die meisten es nicht sind", () => {
     const eintraege = [
       eintragMitDatum("2026-08-12"),
-      eintragMitDatum("2026-08-11"),
+      eintragMitDatum("2020-01-01"),
       eintragMitDatum("2020-01-01"),
       eintragMitDatum("2020-01-01"),
     ];
     expect(istKetteAktuell(eintraege, jetzt)).toBe(true);
   });
 
-  it("gilt nicht als aktuell, wenn zu wenige Einträge frisch sind", () => {
+  /*
+   * Gegenprobe mit echten Zahlen: Hofer hatte an demselben Tag über die ganze
+   * Kette kein einziges Datum jünger als 2025-11-07 — über neun Monate alt,
+   * ein echter Ausfall (vermutlich hat heisse-preise.io Hofer nicht mehr
+   * abgefragt). Kein Eintrag irgendeiner Größe an Frische darf das durchlassen.
+   */
+  it("gilt nicht als aktuell, wenn kein einziger Eintrag frisch ist", () => {
     const eintraege = [
-      eintragMitDatum("2026-08-12"),
       eintragMitDatum("2020-01-01"),
       eintragMitDatum("2020-01-01"),
       eintragMitDatum("2020-01-01"),

@@ -57,15 +57,25 @@ export function gruppiereNachKette(eintraege: FeedEintrag[]): Map<string, FeedEi
 /** Wie viele Tage ein Eintrag höchstens alt sein darf, um als „frisch" zu zählen. */
 export const AKTUALITAETS_TAGE = 3;
 
-/** Welcher Anteil der Einträge einer Kette frisch sein muss. */
-export const AKTUALITAETS_ANTEIL = 0.5;
-
 /**
  * Ob eine Kette im Feed noch aktuell beliefert wird.
  *
  * Kein hartcodierter Kettenname — eine Kette, die (wie MPreis 2024) ihren
  * Onlineshop schließt oder die der Feed (wie Lidl/Penny) gar nicht führt,
  * fällt hier automatisch heraus, ohne dass der Code sie kennen muss.
+ *
+ * Maßgeblich ist das **jüngste** Datum über die ganze Kette, nicht ein
+ * Anteil frischer Einträge. Live-Fund vom 2026-08-16: Der Feed ist ein
+ * Änderungsprotokoll — `priceHistory[0].date` ist der Tag der letzten
+ * *Preisänderung*, nicht der letzten Prüfung. An einem gegebenen Tag ändert
+ * sich der Preis der meisten Artikel schlicht nicht, auch bei einer gesund
+ * laufenden Kette (Billa/Spar hatten an dem Tag nur 6,6 % bzw. 0,8 % frische
+ * Einträge, obwohl beide taggenau aktuell waren). Eine Anteils-Schwelle wie
+ * „die Hälfte muss frisch sein" hätte beide fälschlich als tot gemeldet.
+ * Eine Kette, deren Scraping wirklich aufgehört hat (Hofer: jüngstes Datum
+ * über die ganze Kette war 2025-11-07, über neun Monate alt), hat dagegen
+ * *gar keinen* frischen Eintrag — und genau das ist der Unterschied, den
+ * diese Funktion prüft.
  */
 export function istKetteAktuell(eintraege: FeedEintrag[], jetzt: Date): boolean {
   if (eintraege.length === 0) return false;
@@ -73,13 +83,11 @@ export function istKetteAktuell(eintraege: FeedEintrag[], jetzt: Date): boolean 
   const grenze = new Date(jetzt);
   grenze.setUTCDate(grenze.getUTCDate() - AKTUALITAETS_TAGE);
 
-  const frische = eintraege.filter((eintrag) => {
+  return eintraege.some((eintrag) => {
     const datum = eintrag.priceHistory[0]?.date;
     if (!datum) return false;
     return new Date(`${datum}T00:00:00.000Z`) >= grenze;
   });
-
-  return frische.length / eintraege.length >= AKTUALITAETS_ANTEIL;
 }
 
 const FEED_EINHEITEN: Record<string, { einheit: Basiseinheit; faktor: number }> = {

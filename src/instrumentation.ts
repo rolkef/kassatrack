@@ -15,8 +15,20 @@ export async function register() {
 
   const { db } = await import("@/db");
   const { raeumeAbweisungenAuf } = await import("@/lib/abweisung");
+  const { legeKettenAn } = await import("@/lib/katalog");
 
   const TAG = 24 * 60 * 60 * 1000;
+
+  /*
+   * Ohne diese Zeile hing das Anlegen der Ketten allein am täglichen
+   * Ketten-Sync (Plan 5), dessen erste Zeile `legeKettenAn` ebenfalls aufruft
+   * — aber der läuft erst nachts, und bis dahin zeigt `/erfassen` „keine
+   * Ketten eingetragen" und ist eine Sackgasse. Preise manuell einzutragen
+   * darf nicht von einem externen Feed abhängen, den es vielleicht nie gibt.
+   * `legeKettenAn` ist idempotent (`onConflictDoNothing`), ein Mehrfachaufruf
+   * schadet nicht.
+   */
+  void legeKettenAn(db);
 
   /*
    * Bewusst **ohne** `await`: Next wartet `register()` ab, bevor es Anfragen
