@@ -107,6 +107,16 @@ describe("istKetteAktuell", () => {
   it("gilt nicht als aktuell ohne jeden Eintrag", () => {
     expect(istKetteAktuell([], jetzt)).toBe(false);
   });
+
+  /*
+   * Ohne diese Gegenprobe wäre `AKTUALITAETS_TAGE` nur nach unten (durch den
+   * `2020-01-01`-Fall oben) begrenzt, nicht nach oben — eine Änderung des
+   * Werts auf z. B. 30 hätte alle bisherigen Tests weiter bestehen lassen.
+   */
+  it("zieht die Drei-Tage-Grenze exakt an ihrem Rand", () => {
+    expect(istKetteAktuell([eintragMitDatum("2026-08-11")], jetzt)).toBe(true);
+    expect(istKetteAktuell([eintragMitDatum("2026-08-09")], jetzt)).toBe(false);
+  });
 });
 
 describe("holeFeed", () => {

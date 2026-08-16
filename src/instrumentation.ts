@@ -20,15 +20,30 @@ export async function register() {
   const TAG = 24 * 60 * 60 * 1000;
 
   /*
-   * Ohne diese Zeile hing das Anlegen der Ketten allein am täglichen
+   * Ohne diesen Aufruf hing das Anlegen der Ketten allein am täglichen
    * Ketten-Sync (Plan 5), dessen erste Zeile `legeKettenAn` ebenfalls aufruft
    * — aber der läuft erst nachts, und bis dahin zeigt `/erfassen` „keine
    * Ketten eingetragen" und ist eine Sackgasse. Preise manuell einzutragen
    * darf nicht von einem externen Feed abhängen, den es vielleicht nie gibt.
    * `legeKettenAn` ist idempotent (`onConflictDoNothing`), ein Mehrfachaufruf
    * schadet nicht.
+   *
+   * Mit `try`/`catch`, anders als bei `raeumeAbweisungenAuf` unten nicht
+   * weil die Aufgabe wichtiger wäre, sondern weil sie zum denkbar
+   * ungünstigsten Zeitpunkt laufen kann: Migrationen laufen auf Coolify nie
+   * automatisch, sondern werden nach dem Start von Hand nachgezogen — bei
+   * einem frischen Deploy existiert die Tabelle `chain` also noch nicht,
+   * wenn `register()` zum ersten Mal läuft, und der Insert schlägt fehl. Ein
+   * unbehandelter Fehler würde hier nur als rohe „Unhandled Rejection" in den
+   * Logs landen. Der erneute Versuch auf dem Tages-Zeitgeber unten heilt das
+   * von selbst, sobald die Migration nachgezogen ist.
    */
-  void legeKettenAn(db);
+  const legeKettenAnMitProtokoll = () =>
+    void legeKettenAn(db).catch((fehler) =>
+      console.warn("Ketten konnten nicht angelegt werden — /erfassen bleibt leer:", fehler),
+    );
+
+  legeKettenAnMitProtokoll();
 
   /*
    * Bewusst **ohne** `await`: Next wartet `register()` ab, bevor es Anfragen
@@ -48,5 +63,8 @@ export async function register() {
 
   // `unref()`, damit dieser Zeitgeber den Prozess nicht am Beenden hindert —
   // ein Container, der auf sein Aufräumen wartet, wäre ein schlechter Tausch.
-  setInterval(() => void raeumeAbweisungenAuf(db), TAG).unref();
+  setInterval(() => {
+    legeKettenAnMitProtokoll();
+    void raeumeAbweisungenAuf(db);
+  }, TAG).unref();
 }

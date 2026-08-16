@@ -165,12 +165,25 @@ Zwei kleine, nicht-schemaverändernde Ergänzungen an bestehendem Code:
    Kettenkürzel abbilden; unbekannte `store`-Werte werden verworfen und im
    Protokoll gezählt (nicht einzeln geloggt — bei tausenden Fremdartikeln
    wäre das reines Rauschen).
-3. **Aktualität je Kette:** eine Kette gilt als aktuell, wenn mindestens die
-   Hälfte ihrer Einträge ein `priceHistory[0].date` von höchstens drei Tagen
-   vor dem Lauf tragen; sonst wird die ganze Kette diesen Lauf übersprungen
-   und im Protokoll als „übersprungen (veraltet)" geführt. Beide Zahlen
-   (50 %, drei Tage) als benannte Konstanten im Code, nicht als Magic
-   Numbers verstreut — spätere Anpassung soll eine Zeile sein.
+3. **Aktualität je Kette:** eine Kette gilt als aktuell, wenn mindestens
+   *ein* Eintrag ein `priceHistory[0].date` von höchstens drei Tagen vor dem
+   Lauf trägt; sonst wird die ganze Kette diesen Lauf übersprungen und im
+   Protokoll als „übersprungen (veraltet)" geführt. Die Drei-Tage-Grenze als
+   benannte Konstante im Code, nicht als Magic Number verstreut — spätere
+   Anpassung soll eine Zeile sein.
+
+   **Korrektur nach Live-Verifikation (2026-08-16):** Die ursprünglich hier
+   vorgesehene Anteils-Schwelle („mindestens die Hälfte der Einträge muss
+   frisch sein") erwies sich am echten Feed als falsch. Der Feed ist ein
+   Änderungsprotokoll — `priceHistory[0].date` ist der Tag der letzten
+   *Preisänderung*, nicht der letzten Prüfung. Billa und Spar, beide
+   nachweislich taggenau aktuell, hatten an einem gewöhnlichen Tag nur 6,6 %
+   bzw. 0,8 % Einträge mit einem Datum der letzten drei Tage — die
+   Anteils-Schwelle hätte beide fälschlich als veraltet gemeldet. Hofer, eine
+   Kette mit echtem Ausfall, hatte dagegen kein einziges Datum jünger als
+   2025-11-07. Maßgeblich ist deshalb nicht ein Anteil, sondern ob
+   *irgendein* Eintrag der Kette kürzlich eine Preisänderung verzeichnet
+   hat — siehe `istKetteAktuell` in `src/lib/ketten-feed.ts`.
 4. **Je Artikel einer aktuellen Kette** (zuerst `unavailable: true` verwerfen,
    dann `unit`/`quantity` parsen — bei nicht deutbarer Einheit den Eintrag
    verwerfen und im Protokoll zählen, nicht in die Prüfliste aufnehmen, da
