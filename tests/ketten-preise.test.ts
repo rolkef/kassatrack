@@ -72,6 +72,30 @@ describe("synchronisiereBeobachtungen", () => {
     expect(await holeBeobachtungen(storeProductId)).toHaveLength(2);
   });
 
+  it("rechnet den Regalpreis in den Grundpreis um — bei jeder Gebindegröße", async () => {
+    // 250 g für 2,49 € sind 9,96 €/kg; 500 g für 3,99 € sind 7,98 €/kg.
+    // Zwei Gebindegrößen sind Absicht: Bei 1000 g ist der Umrechnungsfaktor
+    // genau 1, ein roher Regalpreis in `grundpreis` (Plan 4s Fehlerklasse)
+    // bliebe dort unbemerkt.
+    for (const [wert, preis, erwartet] of [
+      [250, 2.49, 9.96],
+      [500, 3.99, 7.98],
+    ] as const) {
+      const produkt = await legeProduktAn(umgebung.db, { name: `Grundpreis ${wert}`, menge: wert, einheit: "G" });
+      const [kette] = await holeKetten(umgebung.db);
+      const storeProductId = await sichereKettenProdukt(umgebung.db, { chainId: kette.id, productId: produkt.id });
+
+      await synchronisiereBeobachtungen(umgebung.db, {
+        storeProductId, chainId: kette.id, productId: produkt.id,
+        menge: { wert, einheit: "G" },
+        verlauf: [{ date: "2024-04-01", price: preis }],
+      });
+
+      const [beobachtung] = await holeBeobachtungen(storeProductId);
+      expect(Number(beobachtung.grundpreis)).toBeCloseTo(erwartet, 4);
+    }
+  });
+
   it("ist idempotent bei doppeltem Lauf mit identischem Verlauf", async () => {
     const produkt = await legeProduktAn(umgebung.db, { name: "Mehl Sync", menge: 1000, einheit: "G" });
     const [kette] = await holeKetten(umgebung.db);
