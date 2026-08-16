@@ -35,11 +35,16 @@ type Eigenschaften = {
    */
   anfangsMeldung?: Meldung | null;
   /**
-   * Was nach einer erfolgreichen Anmeldung passiert. Voreinstellung ist ein
-   * vollständiger Seitenwechsel, kein Router-Übergang: die Sitzung ist neu,
-   * und ein echter Ladevorgang stellt sicher, dass Proxy, Server-Komponenten
-   * und Cache sie alle sehen. Der Google-Weg verlässt die Seite ohnehin hart —
-   * so verhalten sich beide Wege gleich.
+   * Was nach einer erfolgreichen **Passkey**-Anmeldung passiert. Voreinstellung
+   * ist ein vollständiger Seitenwechsel, kein Router-Übergang: die Sitzung ist
+   * neu, und ein echter Ladevorgang stellt sicher, dass Proxy,
+   * Server-Komponenten und Cache sie alle sehen.
+   *
+   * Gilt **nicht** für den Google-Weg — dort navigiert Better Auths eigenes
+   * Redirect-Plugin bereits selbst zu Google, sobald `signIn.social(...)`
+   * erfolgreich zurückkommt (siehe `anmelden()` unten). Ein zusätzlicher
+   * Aufruf hier würde diese Navigation im selben Tick überholen und
+   * abbrechen, bevor der Browser Google je erreicht.
    */
   nachErfolg?: () => void;
 };
@@ -72,7 +77,16 @@ export function AnmeldeFormular({
         const ergebnis = await ausfuehren();
         if (ergebnis?.error) {
           setMeldung(deuteAntwort(ergebnis.error));
-        } else {
+        } else if (gewaehlt !== "google") {
+          // Der Google-Weg ist mit einem erfolgreichen `ausfuehren()` noch
+          // nicht angemeldet, sondern erst einen Schritt davor: Better Auths
+          // eigenes Redirect-Plugin liest dieselbe Antwort und setzt selbst
+          // `window.location.href` auf die echte Google-Seite. Ein
+          // zusätzliches `nachErfolg()` hier liefe im selben Tick eine zweite
+          // Navigation los und überholte die zu Google noch im Browser — sie
+          // stünde als „abgebrochen" im Netzwerk-Tab, und die Anmeldung sähe
+          // aus wie ein bloßes Neuladen der Seite. Genau das ist am
+          // 2026-08-16 in Produktion beobachtet worden.
           nachErfolg();
         }
       } catch {
