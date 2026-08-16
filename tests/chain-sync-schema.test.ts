@@ -34,7 +34,7 @@ describe("chain_sync_ungeklaert", () => {
   it("weist eine negative Menge ab", async () => {
     const [kette] = await holeKetten(umgebung.db);
     const fehler = await faengtFehler(
-      umgebung.db.insert(chainSyncUngeklaert).values({
+      () => umgebung.db.insert(chainSyncUngeklaert).values({
         id: randomUUID(),
         chainId: kette.id,
         feedId: "00-999999",
@@ -50,7 +50,7 @@ describe("chain_sync_ungeklaert", () => {
   it("weist eine unbekannte Einheit ab", async () => {
     const [kette] = await holeKetten(umgebung.db);
     const fehler = await faengtFehler(
-      umgebung.db.insert(chainSyncUngeklaert).values({
+      () => umgebung.db.insert(chainSyncUngeklaert).values({
         id: randomUUID(),
         chainId: kette.id,
         feedId: "00-999998",
@@ -76,7 +76,7 @@ describe("chain_sync_ungeklaert", () => {
     });
 
     const fehler = await faengtFehler(
-      umgebung.db.insert(chainSyncUngeklaert).values({
+      () => umgebung.db.insert(chainSyncUngeklaert).values({
         id: randomUUID(),
         chainId: kette.id,
         feedId: "00-777777",
