@@ -7,6 +7,7 @@ import type { Produkt } from "@/lib/katalog";
 import {
   SUCH_VERZOEGERUNG,
   type Eintrag,
+  type Ergebnis,
   type NeuAnlegenAktion,
   type SuchAktion,
   type VerwerfenAktion,
@@ -14,6 +15,9 @@ import {
 } from "./zustand";
 
 type Modus = "ruhig" | "suche" | "neu";
+
+/** Was `fuehreAus` an Rückgaben verträgt: ein Ergebnis oder gar nichts. */
+type Ergebnisartig = Ergebnis | void;
 
 /**
  * Ein Artikel, den der Sync nicht zuordnen konnte — und die drei Wege daraus.
@@ -413,9 +417,6 @@ export function UngeklaertZeile({
     </li>
   );
 }
-
-/** Was `fuehreAus` an Rückgaben verträgt: ein Ergebnis oder gar nichts. */
-type Ergebnisartig = { erfolg: true } | { erfolg: false; meldung: string } | void;
 
 /**
  * Derselbe Strich wie beim Pfeil der Trefferliste und den Symbolen der
