@@ -2,18 +2,24 @@
 // Datei — siehe Begründung in tests/dom.ts.
 import { screen } from "./dom";
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, mock } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
+import { userEvent } from "@testing-library/user-event";
 import { Navigationsleiste } from "@/components/app-navigation";
 
 /*
  * Geprüft wird `Navigationsleiste` und nicht `AppNavigation`: Der Pfad wird
  * hereingereicht, damit hier keine Attrappe für `next/navigation` nötig ist.
  * Die gälte in Bun für den ganzen Lauf und nähme `tests/sitzung.test.ts` das
- * echte `redirect` weg.
+ * echte `redirect` weg. Aus demselben Grund kommt auch das Abmelden als
+ * Funktion herein, statt `@/lib/auth-client` mit `mock.module` zu ersetzen —
+ * das nähme `tests/anmelde-formular.test.tsx` seine eigene, andere Attrappe
+ * desselben Moduls weg.
  */
-function zeichne(pfad: string, darfVerwalten = false) {
-  return render(<Navigationsleiste pfad={pfad} darfVerwalten={darfVerwalten} />);
+function zeichne(pfad: string, darfVerwalten = false, meldeAb = mock(async () => {})) {
+  return render(
+    <Navigationsleiste pfad={pfad} darfVerwalten={darfVerwalten} meldeAb={meldeAb} />,
+  );
 }
 
 /** Der Verweis eines Ziels — `null`, wenn es das Ziel gar nicht gibt. */
@@ -134,5 +140,26 @@ describe("Navigationsleiste", () => {
     expect(screen.getAllByRole("link", { name: "KassaTrack" })[0].getAttribute("aria-current")).toBe(
       "page",
     );
+  });
+
+  /*
+   * Es gibt sie zweimal im Dokument, genau wie die Wortmarke — je eine Fassung
+   * für die mobile Kopfzeile und eine für die Schreibtisch-Leiste, per CSS
+   * ein- und ausgeblendet, nicht per Bedingung erzeugt.
+   */
+  it("bietet eine Abmelden-Schaltfläche an", () => {
+    zeichne("/");
+
+    const knoepfe = screen.getAllByRole("button", { name: /Abmelden/i });
+    expect(knoepfe.length).toBeGreaterThan(0);
+  });
+
+  it("ruft beim Abmelden die übergebene Funktion auf, statt selbst `@/lib/auth-client` zu kennen", async () => {
+    const meldeAb = mock(async () => {});
+    zeichne("/", false, meldeAb);
+
+    await userEvent.click(screen.getAllByRole("button", { name: /Abmelden/i })[0]);
+
+    expect(meldeAb).toHaveBeenCalledTimes(1);
   });
 });
