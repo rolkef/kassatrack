@@ -1,5 +1,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
+import { eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { priceObservation } from "@/db/schema/preise";
 import { grundpreis } from "@/lib/einheiten";
 import {
   legeKettenAn,
@@ -192,5 +194,33 @@ describe("berechneOptimierung", () => {
 
     expect(optimierung.guenstigsterEinzelmarkt).toBeNull();
     expect(optimierung.ersparnis).toBeNull();
+  });
+});
+
+describe("schreibeBeobachtung", () => {
+  it("schreibt beobachtetAm, wenn es mitgegeben wird", async () => {
+    const produkt = await legeProduktAn(umgebung.db, { name: "Test", menge: 100, einheit: "G" });
+    const [kette] = await holeKetten(umgebung.db);
+    const storeProductId = await sichereKettenProdukt(umgebung.db, { chainId: kette.id, productId: produkt.id });
+    const datum = new Date("2024-05-01T00:00:00.000Z");
+
+    await schreibeBeobachtung(umgebung.db, {
+      storeProductId,
+      chainId: kette.id,
+      productId: produkt.id,
+      quelle: "CHAIN_API",
+      preisart: "NORMAL",
+      einzelpreis: 1.99,
+      zeilensumme: 1.99,
+      grundpreis: 1.99,
+      beobachtetAm: datum,
+    });
+
+    const [zeile] = await umgebung.db
+      .select({ beobachtetAm: priceObservation.beobachtetAm })
+      .from(priceObservation)
+      .where(eq(priceObservation.storeProductId, storeProductId));
+
+    expect(zeile.beobachtetAm).toEqual(datum);
   });
 });

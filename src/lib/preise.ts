@@ -62,6 +62,8 @@ export async function schreibeBeobachtung(
     grundpreis: number;
     aktionsHinweis?: string | null;
     aktionGueltigBis?: Date | null;
+    /** Historisches Beobachtungsdatum — Default `now()` wie bisher. */
+    beobachtetAm?: Date;
   },
 ): Promise<void> {
   pruefeZahl("einzelpreis", eingabe.einzelpreis);
@@ -106,6 +108,7 @@ export async function schreibeBeobachtung(
     grundpreis: eingabe.grundpreis.toFixed(4),
     aktionsHinweis: eingabe.aktionsHinweis ?? null,
     aktionGueltigBis: eingabe.aktionGueltigBis ?? null,
+    ...(eingabe.beobachtetAm ? { beobachtetAm: eingabe.beobachtetAm } : {}),
   });
 }
 

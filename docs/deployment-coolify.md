@@ -123,7 +123,43 @@ lesen (meist ein SQL-Fehler auf der jeweiligen `.sql`-Datei unter
 `drizzle/`, oder ein Verbindungsproblem), die Ursache beheben, und den
 Befehl unverändert erneut ausführen.
 
-## 7. Ersten Zugang freischalten
+## 7. Ketten-Sync einrichten
+
+Ab Plan 5 gibt es ein zweites vorkompiliertes Skript neben
+`scripts/migrieren.js`: `scripts/synchronisiere-ketten.js`. Es holt einmal
+täglich den aggregierten Preisfeed von heisse-preise.io, ordnet jeden
+Eintrag — wo möglich — einem bestehenden `store_product` zu, schreibt neue
+Preisbeobachtungen (mit dem umgerechneten Grundpreis, nie dem rohen
+Feed-Preis) und meldet alles, was sich nicht automatisch zuordnen lässt, in
+die Prüfliste unter `/produkte/abgleich`.
+
+Wie beim Migrationsskript ist auch dieses beim Bau vorkompiliert
+(`RUN bun build ./scripts/synchronisiere-ketten.ts …` im `Dockerfile`, exakt
+nach demselben Muster wie `migrieren.ts`) und braucht zur Laufzeit **keinen
+Registry-Zugriff** — der einzige Netzwerkzugriff, den es macht, ist der eine
+Feed-Abruf gegen heisse-preise.io selbst. Ein `bunx`-Aufruf, der irgendeine
+Paket-Registry bei jedem Lauf erneut befragt, wäre hier aus demselben Grund
+falsch wie in Schritt 6: Ein täglicher Cronjob soll nicht an einer
+Registry-Erreichbarkeit hängen, die mit dem eigentlichen Zweck des Skripts
+nichts zu tun hat.
+
+Einrichtung als Coolify Scheduled Task:
+
+1. In Coolify: die Anwendung öffnen → „Scheduled Tasks" → „Add".
+2. Befehl: `bun scripts/synchronisiere-ketten.js` — läuft im bereits
+   laufenden Container, keine eigene Ressource nötig.
+3. Zeitplan: einmal täglich, zu einer Uhrzeit außerhalb der üblichen
+   Nutzung (z. B. nachts).
+
+Ein Fehlschlag wird im Log des Coolify-Tasks sichtbar: Das Skript schreibt
+die Ursache per `console.error` und setzt danach `process.exitCode = 1`,
+bevor es sich beendet — Coolify markiert den Lauf damit als fehlgeschlagen,
+statt ihn stillschweigend als erfolgreich zu zählen. Ein einzelner
+Fehlschlag ist unkritisch: Der nächste Tag startet einen neuen, vollständig
+unabhängigen Lauf gegen den dann aktuellen Feed — es gibt keinen Zustand,
+der von einem gescheiterten Vortag „nachgeholt" werden müsste.
+
+## 8. Ersten Zugang freischalten
 
 Da die Allowlist leer ist, kommt niemand herein — auch der Betreiber nicht.
 
@@ -167,7 +203,7 @@ Zwei Dinge sind bei der Einfügung zwingend, nicht optional:
 
 Danach über `/verwaltung/zugriff` alle weiteren Personen einladen.
 
-## 8. Rate-Limiting — was hier bewusst konfiguriert ist
+## 9. Rate-Limiting — was hier bewusst konfiguriert ist
 
 `src/lib/auth.ts` schaltet Better Auths eingebaute Begrenzung ausdrücklich
 ein (`{ enabled: true, window: 60, max: 20 }`) und benennt die Herkunfts-Kopfzeile
@@ -220,11 +256,11 @@ skaliert, muss vorher eine geteilte Ablage (z. B. Redis über
 `secondaryStorage`) für die Begrenzung eingerichtet werden — sonst rate-limitet
 sich die Anwendung nicht mehr wirksam selbst.
 
-## 9. Backups
+## 10. Backups
 
 Coolify → Postgres-Service → Backups aktivieren, Ziel S3, täglich.
 
-## 10. Produktbilder — persistentes Volume
+## 11. Produktbilder — persistentes Volume
 
 Plan 3 lädt Produktbilder von Open Food Facts herunter und speichert sie
 im Verzeichnis, das `PRODUKTBILDER_VERZEICHNIS` benennt. Ohne ein
@@ -253,7 +289,7 @@ Abhilfe im Container-Terminal:
 chown -R 1001:1001 /app/daten/produktbilder
 ```
 
-## 11. Live verifizieren
+## 12. Live verifizieren
 
 Nach dem Deployment auf dem **Handy** durchspielen:
 
@@ -266,7 +302,7 @@ Nach dem Deployment auf dem **Handy** durchspielen:
 5. „Zum Startbildschirm hinzufügen" → App startet ohne Browserleiste
 6. Lighthouse (Mobil) laufen lassen → Performance ≥ 90, PWA installierbar
 
-## 12. Fehlerbehebung
+## 13. Fehlerbehebung
 
 **`docker build` schlägt mit `UNABLE_TO_VERIFY_LEAF_SIGNATURE` (oder
 „unable to verify the first certificate") fehl — nur relevant bei einem

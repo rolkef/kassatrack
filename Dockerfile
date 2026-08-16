@@ -36,6 +36,7 @@ RUN bun run build
 # ohnehin nicht sinnvoll inline bündeln), `drizzle-orm` selbst landet
 # vollständig in der Ausgabedatei.
 RUN bun build ./scripts/migrieren.ts --target=bun --external pg --outfile=./scripts/migrieren.js
+RUN bun build ./scripts/synchronisiere-ketten.ts --target=bun --external pg --outfile=./scripts/synchronisiere-ketten.js
 
 FROM oven/bun:1.3.14-alpine AS runner
 WORKDIR /app
@@ -72,6 +73,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 # nötig: `drizzle-orm/node-postgres/migrator` liest `migrationsFolder` direkt
 # vom Dateisystem und braucht dafür keine drizzle-kit-Konfiguration.
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/migrieren.js ./scripts/migrieren.js
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/synchronisiere-ketten.js ./scripts/synchronisiere-ketten.js
 
 USER nextjs
 EXPOSE 3000
