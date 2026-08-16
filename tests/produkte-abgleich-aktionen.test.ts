@@ -172,6 +172,55 @@ describe("legeAlsNeuesProduktAn", () => {
     expect(produkt.marke).toBe("Rauch");
   });
 
+  /*
+   * Derselbe Schutz wie auf dem Erfassungspfad (`src/app/erfassen/aktionen.ts`):
+   * erst `findeProdukt`, nur bei Fehlanzeige anlegen. Ohne ihn entsteht beim
+   * Tippen eines Namens, den es mit gleicher Marke, Menge und Einheit schon
+   * gibt, ein zweites Produkt — und die Preisgeschichte der Ware zerfiele
+   * still in zwei Hälften, mit je einer halb gefüllten Preismatrix. Genau der
+   * Schaden, den `findeProdukt` laut seinem eigenen Doc-Kommentar verhindert.
+   */
+  it("greift ein bestehendes Produkt auf, statt ein zweites anzulegen", async () => {
+    const vorhanden = await legeProduktAn(umgebung.db, {
+      name: "Butter",
+      marke: "Berglandmilch",
+      menge: 250,
+      einheit: "G",
+    });
+    const eintrag = await ungeklaert({ feedId: "abg-dedup", rohname: "BUTT.EXTRA" });
+
+    // Groß-/Kleinschreibung und Randleerzeichen zählen nicht — `findeProdukt`
+    // vergleicht normalisiert, und genau so tippt ein Mensch.
+    const ergebnis = await legeAlsNeuesProduktAn(eintrag.id, {
+      name: "  butter  ",
+      marke: "berglandmilch",
+    });
+
+    expect(ergebnis.erfolg).toBe(true);
+
+    const { sucheProdukte } = await import("@/lib/katalog");
+    const treffer = await sucheProdukte(umgebung.db, "Butter");
+    expect(treffer).toHaveLength(1);
+    expect(treffer[0].id).toBe(vorhanden.id);
+  });
+
+  /*
+   * Die Kehrseite: Gleicher Name, aber anderes Gebinde ist eine andere Ware.
+   * „Butter 250 g" und „Butter 500 g" dürfen nicht zusammenfallen, sonst
+   * mischen sich ihre Grundpreise in einer Reihe.
+   */
+  it("legt bei gleichem Namen, aber anderer Menge ein eigenes Produkt an", async () => {
+    await legeProduktAn(umgebung.db, { name: "Butter", marke: null, menge: 250, einheit: "G" });
+    const eintrag = await ungeklaert({ feedId: "abg-gebinde", rohname: "BUTT", menge: 500 });
+
+    await legeAlsNeuesProduktAn(eintrag.id, { name: "Butter", marke: null });
+
+    const { sucheProdukte } = await import("@/lib/katalog");
+    const treffer = await sucheProdukte(umgebung.db, "Butter");
+    expect(treffer).toHaveLength(2);
+    expect(treffer.map((p) => p.menge).sort((a, b) => a - b)).toEqual([250, 500]);
+  });
+
   it("meldet einen Fehler bei unbekannter ungeklaertId, ohne ein Produkt anzulegen", async () => {
     const ergebnis = await legeAlsNeuesProduktAn("existiert-nicht", {
       name: "Geisterware",

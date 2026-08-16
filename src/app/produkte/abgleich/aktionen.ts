@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
-import { legeProduktAn, sucheProdukte, type Produkt } from "@/lib/katalog";
+import { findeProdukt, legeProduktAn, sucheProdukte, type Produkt } from "@/lib/katalog";
 import { bestaetigeZuordnung, holeUngeklaerte, verwerfeUngeklaert } from "@/lib/ketten-abgleich";
 import { requireUser } from "@/lib/sitzung";
 import type { Ergebnis } from "./zustand";
@@ -79,12 +79,28 @@ export async function legeAlsNeuesProduktAn(
     return { erfolg: false, meldung: "Ohne Namen lässt sich kein Produkt anlegen." };
   }
 
-  const produkt = await legeProduktAn(db, {
+  /*
+   * Erst suchen, dann anlegen — dieselbe Reihenfolge wie auf dem
+   * Erfassungspfad (`src/app/erfassen/aktionen.ts`).
+   *
+   * „Als neues Produkt anlegen" ist die Absicht der Person, nicht die
+   * Tatsache: Wer hier „Butter" tippt, weiß nicht unbedingt, dass es Butter
+   * mit derselben Marke und demselben Gebinde schon gibt. Ohne diese Prüfung
+   * entstünde ein zweites Produkt, und die Preisgeschichte der Ware zerfiele
+   * still in zwei Hälften — mit je einer halb gefüllten Preismatrix. Genau
+   * der Schaden, gegen den `findeProdukt` geschrieben ist.
+   *
+   * Menge und Einheit gehen ungeprüft aus dem Prüflisten-Eintrag ein und
+   * trennen dabei mit: „Butter 250 g" und „Butter 500 g" bleiben zwei Waren.
+   */
+  const eingabeProdukt = {
     name,
     marke: eingabe.marke,
     menge: eintrag.menge,
     einheit: eintrag.einheit,
-  });
+  };
+
+  const produkt = (await findeProdukt(db, eingabeProdukt)) ?? (await legeProduktAn(db, eingabeProdukt));
 
   await bestaetigeZuordnung(db, {
     ungeklaertId,
