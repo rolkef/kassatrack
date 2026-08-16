@@ -49,19 +49,27 @@ export async function fuehreSyncAus(
     geschriebeneBeobachtungen: 0,
   };
 
-  for (const [feedStore, eintraege] of gruppen) {
-    const kette = kettenNachKuerzel.get(feedStore);
-    if (!kette) {
-      bericht.ignorierteKetten.push(feedStore);
-      continue;
-    }
+  for (const feedStore of gruppen.keys()) {
+    if (!kettenNachKuerzel.has(feedStore)) bericht.ignorierteKetten.push(feedStore);
+  }
+
+  /*
+   * Die Schleife läuft über den Katalog, nicht über die Feed-Gruppen: Eine
+   * Kette, die der Feed gar nicht führt (aktuell Lidl und Penny), hat keine
+   * Gruppe und käme in einem feedgetriebenen Lauf in keiner der drei Listen
+   * vor — sie verschwände still aus dem Protokoll. Über den Katalog gezählt
+   * fällt sie mit leerem Eintragsarray durch `istKetteAktuell` und wird wie
+   * jede ausgefallene Kette als übersprungen vermerkt.
+   */
+  for (const kette of ketten) {
+    const eintraege = gruppen.get(kette.kuerzel) ?? [];
 
     if (!istKetteAktuell(eintraege, jetzt)) {
-      bericht.uebersprungeneKetten.push(feedStore);
+      bericht.uebersprungeneKetten.push(kette.kuerzel);
       continue;
     }
 
-    bericht.verarbeiteteKetten.push(feedStore);
+    bericht.verarbeiteteKetten.push(kette.kuerzel);
 
     for (const eintrag of eintraege) {
       if (eintrag.unavailable) {

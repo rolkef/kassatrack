@@ -58,6 +58,18 @@ describe("fuehreSyncAus", () => {
     expect(bericht.neueUngeklaerte).toBe(0);
   });
 
+  it("überspringt eine Katalog-Kette, die der Feed gar nicht führt (lidl/penny)", async () => {
+    // Der reale Fall: Lidl und Penny stehen im Katalog, kommen im Feed aber
+    // mit keinem einzigen Eintrag vor. Werden sie über die Feed-Gruppen
+    // gezählt statt über den Katalog, fehlen sie im Bericht spurlos.
+    const bericht = await fuehreSyncAus(umgebung.db, fakeFeed([frischerEintrag()]), JETZT);
+
+    expect(bericht.verarbeiteteKetten).toContain("billa");
+    expect(bericht.uebersprungeneKetten).toContain("lidl");
+    expect(bericht.uebersprungeneKetten).toContain("penny");
+    expect(bericht.ignorierteKetten).toHaveLength(0);
+  });
+
   it("verwirft einen Artikel mit unbekannter Einheit, ohne ihn in die Prüfliste zu legen", async () => {
     const bericht = await fuehreSyncAus(
       umgebung.db,
