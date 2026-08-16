@@ -26,6 +26,54 @@ beforeEach(async () => {
 });
 
 describe("meldeUngeklaert / holeUngeklaerte / verwerfeUngeklaert", () => {
+  /*
+   * Ohne feste Reihenfolge darf Postgres die Zeilen bei jedem Aufruf anders
+   * herausgeben. Auf `/produkte/abgleich` löst jede Aktion ein
+   * `revalidatePath` aus — die Liste würde sich also unter den Händen der
+   * Person neu sortieren, die sie gerade abarbeitet. Ältestes zuerst, weil
+   * das die Warteschlange ist, als die dieser Vorrat gelesen wird.
+   */
+  it("liefert die Prüfliste stabil, ältester Eintrag zuerst", async () => {
+    const [kette] = await holeKetten(umgebung.db);
+
+    for (const feedId of ["c-jung", "a-alt", "b-mittel"]) {
+      await meldeUngeklaert(umgebung.db, {
+        chainId: kette.id,
+        feedId,
+        rohname: feedId,
+        menge: 1,
+        einheit: "STK",
+        preis: 1,
+      });
+    }
+
+    /*
+     * `defaultNow()` liegt für alle drei im selben Sekundenbruchteil, die
+     * Zeitpunkte werden deshalb ausdrücklich gesetzt — und zwar **absteigend**.
+     * Ein `update` schreibt in Postgres eine neue Zeilenversion ans Ende des
+     * Heaps; ohne `order by` liefert der Sequential Scan danach genau diese
+     * Reihenfolge, also die umgekehrte der erwarteten. Ohne die Sortierung in
+     * `holeUngeklaerte` schlägt dieser Test damit fehl, statt zufällig
+     * durchzugehen.
+     */
+    const zeiten: [string, string][] = [
+      ["c-jung", "2026-08-03T08:00:00Z"],
+      ["b-mittel", "2026-08-02T08:00:00Z"],
+      ["a-alt", "2026-08-01T08:00:00Z"],
+    ];
+    for (const [feedId, zeit] of zeiten) {
+      await umgebung.db
+        .update(chainSyncUngeklaert)
+        .set({ zuerstGesehenAm: new Date(zeit) })
+        .where(eq(chainSyncUngeklaert.feedId, feedId));
+    }
+
+    const erwartet = ["a-alt", "b-mittel", "c-jung"];
+    expect((await holeUngeklaerte(umgebung.db)).map((e) => e.feedId)).toEqual(erwartet);
+    // Zweiter Aufruf: dieselbe Reihenfolge, nicht bloß irgendeine.
+    expect((await holeUngeklaerte(umgebung.db)).map((e) => e.feedId)).toEqual(erwartet);
+  });
+
   it("legt einen neuen Prüflisten-Eintrag an und findet ihn wieder", async () => {
     const [kette] = await holeKetten(umgebung.db);
     await meldeUngeklaert(umgebung.db, {

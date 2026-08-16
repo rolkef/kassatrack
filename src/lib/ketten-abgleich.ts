@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { chainSyncUngeklaert } from "@/db/schema/chain-sync";
 import { product, storeProduct } from "@/db/schema/katalog";
 import type { Basiseinheit } from "@/lib/einheiten";
@@ -135,8 +135,25 @@ export async function meldeUngeklaert(
     });
 }
 
+/**
+ * Die offene Prüfliste, ältester Eintrag zuerst.
+ *
+ * Die Sortierung ist keine Kosmetik. Ohne `order by` darf Postgres die Zeilen
+ * bei jedem Aufruf in einer anderen Reihenfolge liefern, und auf
+ * `/produkte/abgleich` löst jede einzelne Zuordnung ein `revalidatePath` aus:
+ * Die Liste sortierte sich unter den Händen der Person neu, die sie gerade
+ * abarbeitet. Ältestes zuerst, weil dieser Vorrat als Warteschlange gelesen
+ * wird — was am längsten liegt, gehört nach oben.
+ */
 export async function holeUngeklaerte(db: DbOderTransaktion): Promise<UngeklaertZeile[]> {
-  const zeilen = await db.select(UNGEKLAERT_SPALTEN).from(chainSyncUngeklaert);
+  const zeilen = await db
+    .select(UNGEKLAERT_SPALTEN)
+    .from(chainSyncUngeklaert)
+    // `id` als zweites Merkmal: Zwei Einträge aus demselben Lauf haben
+    // denselben Zeitstempel, und ohne Tiebreak wäre ihre Reihenfolge
+    // untereinander wieder dem Zufall überlassen.
+    .orderBy(asc(chainSyncUngeklaert.zuerstGesehenAm), asc(chainSyncUngeklaert.id));
+
   return zeilen.map(alsUngeklaertZeile);
 }
 
